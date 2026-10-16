@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rocket-lander-rl"
+version = "0.1.0"
+description = "Reward-shaping experiments for Gymnasium LunarLander"
+requires-python = ">=3.10,<3.13"
+dependencies = [
+  "gymnasium[box2d]==1.2.3",
+  "numpy>=1.24,<3",
+  "PyYAML>=6.0,<7",
+]
+
+[project.optional-dependencies]
+train = ["stable-baselines3[extra]==2.7.0"]
+analysis = ["pandas>=2.2,<4", "matplotlib>=3.9,<4"]
+media = ["imageio>=2.36,<3", "imageio-ffmpeg>=0.5,<1"]
+web = ["gradio>=5,<7"]
+dev = ["pytest>=8,<9"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
