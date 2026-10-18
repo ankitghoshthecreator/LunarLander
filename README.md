@@ -1,4 +1,4 @@
-# 🚀 Rocket Lander RL — Reward-Shaped Autonomous Landing
+﻿﻿# 🚀 Rocket Lander RL — Reward-Shaped Autonomous Landing
 
 Train a reinforcement-learning agent to land a rocket on a pad using an open-source physics simulator (OpenAI Gym → **Gymnasium**, Box2D engine), compare reward-shaping strategies, and watch the agent learn and land **in real time**. 100% open source.
 
@@ -190,37 +190,32 @@ Key idea: the **reward wrapper** is the only thing that changes between experime
 ```
 rocket-lander-rl/
 ├── README.md
-├── PRD.md
-├── PHASES.md
-├── LICENSE
-├── requirements.txt
-├── Dockerfile                  # optional
 ├── configs/
-│   ├── ppo_default.yaml        # baseline reward
-│   ├── ppo_sparse.yaml
-│   ├── ppo_shaped.yaml         # your potential-based reward
-│   ├── ppo_overshaped.yaml     # intentionally flawed (hover exploit)
-│   └── dqn_shaped.yaml
+│   ├── ppo_default.yaml        # baseline reward (discrete, no shaping)
+│   ├── ppo_sparse.yaml         # sparse ±1 landing/crash reward
+│   ├── ppo_shaped.yaml         # potential-based shaping (main contribution)
+│   ├── ppo_overshaped.yaml     # intentionally flawed — hover exploit demo
+│   └── experiments/            # per-experiment YAML overrides
+│       ├── ppo_sparse_curriculum.yaml
+│       ├── ppo_sparse_step_penalty_0001.yaml
+│       └── ppo_sparse_timeout_penalty.yaml
 ├── src/rocketrl/
 │   ├── __init__.py
+│   ├── common.py               # load_config, make_lander helpers
 │   ├── envs/
-│   │   └── shaped_lander.py    # reward wrapper + success detection
-│   ├── train.py                # CLI: --config configs/ppo_shaped.yaml --seed 0
-│   ├── evaluate.py             # N-episode eval → metrics JSON/CSV
-│   ├── watch.py                # live pygame viewer (follows latest checkpoint)
-│   ├── record.py               # MP4/GIF recorder
-│   ├── callbacks.py            # checkpoint + custom metric callbacks
-│   └── utils.py
-├── app/
-│   └── app.py                  # Gradio web demo
-├── notebooks/
-│   └── analysis.ipynb          # plots and comparison tables
+│   │   └── shaped_lander.py    # reward wrapper: sparse/default/shaped/overshaped
+│   ├── train.py                # CLI: --config … --seed 0 [--init-model …]
+│   ├── evaluate.py             # N-episode eval → Wilson CI, JSON/CSV
+│   ├── watch.py                # interactive pygame viewer with gravity HUD
+│   └── smoke.py                # quick random/heuristic agent sanity check
 ├── tests/
-│   └── test_reward.py
-├── runs/                       # TensorBoard logs (gitignored)
-├── models/                     # saved models (small ones committed)
-├── videos/
-└── results/                    # metrics.csv, plots/*.png
+│   ├── test_reward.py          # ShapedLander reward, telemetry, penalties (57 passing)
+│   ├── test_evaluate.py        # evaluate.py integration tests
+│   └── test_train_init.py      # train.py --init-model argument tests
+├── results/                    # console logs, CSVs, tuning_log.md
+├── runs/                       # TensorBoard event files (gitignored)
+├── models/                     # checkpoints best_model.zip / latest.zip (gitignored)
+└── videos/                     # MP4 / GIF recordings (gitignored)
 ```
 
 ### Implementation status
@@ -422,7 +417,7 @@ Use the Zoo's `LunarLanderContinuous` config as a starting point; typically 300k
 
 ## 10. Evaluation and metrics
 
-Evaluate each trained model over **100 episodes** with fixed evaluation seeds.
+Evaluate each trained model over **50 episodes** with fixed evaluation seeds (default `10000–10049`).
 
 | Metric | Definition |
 |---|---|
@@ -511,129 +506,59 @@ python -m pytest
 python -m rocketrl.smoke --episodes 3 --render human
 ```
 
-Start a shaped PPO run and evaluate its best checkpoint with the common built-in
-reward. Evaluation seeds default to `10000` through `10099`; override `--seed`
-to reproduce another fixed set. A successful landing requires both legs down
-and an absolute pad offset no greater than `0.2`.
+Start a shaped PPO run and evaluate its best checkpoint:
 
 ```powershell
+# Train (default: 1M steps, 16 envs, seed 0)
 python -m rocketrl.train --config configs/ppo_shaped.yaml --seed 0
+
+# Evaluate best checkpoint (50 episodes, fixed seeds)
 python -m rocketrl.evaluate --config configs/ppo_shaped.yaml --model models/ppo_shaped_s0/best_model.zip
+
+# Visualize the agent landing with interactive gravity control
+python -m rocketrl.watch --model models/ppo_shaped_s0/best_model.zip
+
+# Curriculum transfer: warm-start sparse training from a shaped checkpoint
+python -m rocketrl.train --config configs/ppo_sparse.yaml --seed 0 --init-model models/ppo_shaped_s0/best_model.zip
 ```
 
 Training writes periodic `latest.zip` checkpoints, the best evaluated policy,
 TensorBoard data under `runs/`, and evaluation logs under the run's model
-directory. Evaluation appends a summary row to `results/metrics.csv` by default.
-Override the configured budget with `--timesteps 20000` for a short run.
+directory. Override the configured budget with `--timesteps 20000` for a short smoke-test run.
 
 ---
 
 ## 14. Core code skeletons
 
 ### 14.1 `src/rocketrl/envs/shaped_lander.py`
-```python
-import numpy as np
-import gymnasium as gym
 
-DEFAULTS = dict(
-    w_dist=100.0, w_vel=100.0, w_ang=100.0, w_leg=10.0,
-    c_main=0.3, c_side=0.03, c_time=0.05,
-    b_land=100.0, b_crash=100.0, b_center=20.0, gamma=0.999,
-)
+The wrapper is fully implemented. Key design notes:
+- Supports modes: `sparse`, `default`, `shaped`, `overshaped`.
+- **Sparse mode:** normalised ±1 on terminal landing/crash; configurable `sparse_step_penalty` (per-step cost) and `b_timeout` (truncation penalty) to escape the hover trap.
+- **Shaped mode:** potential-based shaping `γ·Φ(s') − Φ(s)` plus fuel penalty, time penalty, and terminal bonuses.
+- **Success definition:** `terminated` and `base_reward ≥ 100` (landed) and both leg contacts and `|obs[0]| ≤ 0.2` (on-pad center).
+- Emits rich `info` dict per step: `landed`, `crashed`, `base_reward`, `fuel_used`, `reward_components`, `touchdown_speed`, `touchdown_angle`, `touchdown_x_offset`.
 
-class ShapedLander(gym.Wrapper):
-    """mode: 'sparse' | 'default' | 'shaped' | 'overshaped'"""
 
-    def __init__(self, env, mode="shaped", weights=None):
-        super().__init__(env)
-        self.mode = mode
-        self.w = {**DEFAULTS, **(weights or {})}
-        self._prev_phi = 0.0
 
-    def _phi(self, o):
-        x, y, vx, vy, ang, angv, l, r = o[:8]
-        w = self.w
-        return (-(w["w_dist"] * np.hypot(x, y)
-                  + w["w_vel"] * np.hypot(vx, vy)
-                  + w["w_ang"] * abs(ang))
-                + w["w_leg"] * (l + r))
+### 14.2 `src/rocketrl/train.py`
 
-    def reset(self, **kw):
-        obs, info = self.env.reset(**kw)
-        self._prev_phi = self._phi(obs)
-        return obs, info
+`train.py` is fully implemented. CLI flags:
 
-    def step(self, action):
-        obs, base_r, term, trunc, info = self.env.step(action)
-        landed = term and base_r >= 100          # verify in tests for your version
-        crashed = term and base_r <= -100
-        info.update(landed=landed, crashed=crashed, base_reward=base_r,
-                    x=float(obs[0]), speed=float(np.hypot(obs[2], obs[3])),
-                    angle=float(abs(obs[4])))
-
-        w = self.w
-        if self.mode == "default":
-            r = base_r
-        elif self.mode == "sparse":
-            r = 1.0 if landed else (-1.0 if crashed else 0.0)
-        else:  # shaped / overshaped
-            phi = self._phi(obs)
-            r = w["gamma"] * phi - self._prev_phi
-            self._prev_phi = phi
-            if self.mode == "shaped":
-                r -= w["c_time"]
-                r -= w["c_main"] * (action == 2) + w["c_side"] * (action in (1, 3))
-            if landed:
-                r += w["b_land"] + w["b_center"] * max(0.0, 1.0 - abs(obs[0]))
-            if crashed:
-                r -= w["b_crash"]
-        return obs, r, term, trunc, info
+```
+--config PATH         YAML experiment config (required)
+--seed INT            Random seed (default: 0)
+--timesteps INT       Override timesteps from config
+--init-model PATH     Warm-start policy from an existing checkpoint (curriculum transfer)
+--name SUFFIX         Override the run name suffix
 ```
 
-### 14.2 `src/rocketrl/train.py` (core)
-```python
-import argparse, yaml, gymnasium as gym
-from stable_baselines3 import PPO, DQN
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
-from stable_baselines3.common.callbacks import EvalCallback, CheckpointCallback
-from rocketrl.envs.shaped_lander import ShapedLander
+Key behaviours:
+- `resolve_run_paths` generates isolated output directories so a curriculum run (e.g. `ppo_sparse_from_ppo_shaped_s0_s0`) never overwrites its source checkpoint.
+- `create_or_load_model` validates observation/action space compatibility when `--init-model` is given, re-binds the policy to the new training environment, and preserves optimizer state (SB3 saves `policy.optimizer.pth` alongside the model).
+- EvalCallback evaluates with the **default** reward so all shaping variants share one yardstick.
 
-def make_env(mode, weights, seed=0):
-    def _f():
-        env = gym.make("LunarLander-v3", max_episode_steps=1000)
-        return ShapedLander(env, mode=mode, weights=weights)
-    return _f
 
-if __name__ == "__main__":
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--config", required=True)
-    ap.add_argument("--seed", type=int, default=0)
-    ap.add_argument("--timesteps", type=int)
-    a = ap.parse_args()
-    cfg = yaml.safe_load(open(a.config))
-
-    vec = make_vec_env(make_env(cfg["reward_mode"], cfg.get("weights")),
-                       n_envs=cfg.get("n_envs", 16), seed=a.seed,
-                       vec_env_cls=SubprocVecEnv)
-    # Eval env uses the DEFAULT reward so all variants share one yardstick
-    eval_env = make_vec_env(make_env("default", None), n_envs=1, seed=a.seed + 1000)
-
-    name = f'{cfg["name"]}_s{a.seed}'
-    algo = {"PPO": PPO, "DQN": DQN}[cfg["algo"]]
-    model = algo(cfg.get("policy", "MlpPolicy"), vec, seed=a.seed, device="cpu",
-                 tensorboard_log="runs/", verbose=1, **cfg.get("hparams", {}))
-    cbs = [
-        EvalCallback(eval_env, best_model_save_path=f"models/{name}",
-                     eval_freq=max(10_000 // cfg.get("n_envs", 16), 1),
-                     n_eval_episodes=20, deterministic=True),
-        CheckpointCallback(save_freq=max(50_000 // cfg.get("n_envs", 16), 1),
-                           save_path=f"models/{name}", name_prefix="ckpt"),
-    ]
-    model.learn(a.timesteps or cfg["timesteps"], callback=cbs,
-                tb_log_name=name, progress_bar=True)
-    model.save(f"models/{name}/latest")
-```
 
 ### 14.3 `src/rocketrl/watch.py` (interactive viewer with gravity control)
 
@@ -667,11 +592,15 @@ weights:
   b_center: 20
 ```
 
-### 14.5 `tests/test_reward.py` (what to test)
-- Potential-based shaping is ~0 when the state doesn't change.
-- Sparse mode returns exactly 0 on non-terminal steps.
-- `landed`/`crashed` flags match the terminal ±100 base reward in the installed Gymnasium version.
-- Wrapper does not mutate the underlying observation.
+### 14.5 Tests (57 passing)
+
+| File | Coverage |
+|---|---|
+| `tests/test_reward.py` | `ShapedLander` modes, sparse step/timeout penalties, potential shaping, telemetry fields, fuel tracking |
+| `tests/test_evaluate.py` | evaluate.py integration: success/crash/timeout counting, Wilson CI, CSV output |
+| `tests/test_train_init.py` | `--init-model` argument parsing, path isolation, space-compatibility validation, reward-mode preservation |
+
+Run: `.\.venv\Scripts\python.exe -m pytest -q`
 
 ---
 
@@ -738,6 +667,4 @@ Run **3 seeds each**. Report mean ± std.
 
 ## 19. License
 
-MIT (recommended). All dependencies listed here are open source; check each library's license before redistributing bundled assets.
-#   L u n a r L a n d e r  
- 
+MIT. All dependencies listed here are open source; check each library's license before redistributing bundled assets.
