@@ -1,0 +1,29 @@
+Verified environment command outputs
+
+Command: .venv/Scripts/python.exe --version
+Python 3.11.15
+
+Command: .venv/Scripts/python.exe -c "import gymnasium,stable_baselines3,torch,Box2D; print('gymnasium='+gymnasium.__version__); print('stable-baselines3='+stable_baselines3.__version__); print('torch='+torch.__version__); print('Box2D='+getattr(Box2D,'__version__','importable'))"
+gymnasium=1.2.3
+stable-baselines3=2.7.0
+torch=2.14.1+cpu
+Box2D=2.3.10
+
+Command: .venv/Scripts/python.exe -m pip check
+No broken requirements found.
+
+Command: Get-ItemProperty 'HKLM:\HARDWARE\DESCRIPTION\System\CentralProcessor\0' | Select-Object -ExpandProperty ProcessorNameString
+12th Gen Intel(R) Core(TM) i5-12500H
+
+Command: Get-CimInstance Win32_ComputerSystem | Select-Object TotalPhysicalMemory
+Access denied
+
+Command: systeminfo.exe | Select-String 'Total Physical Memory|Available Physical Memory|Processor\(s\)'
+ERROR: Access denied
+
+System-default interpreter diagnostic (the project `.venv` interpreter above was used for experiments):
+Command: python --version
+Python 3.14.7
+
+Command: python -m pytest -q
+ModuleNotFoundError: No module named pytest

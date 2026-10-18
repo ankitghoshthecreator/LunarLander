@@ -43,14 +43,20 @@ def evaluate(model, env, episodes: int, seed: int, center_tolerance: float) -> d
     touchdown_angles: list[float] = []
     touchdown_offsets: list[float] = []
     fuel_used: list[float] = []
+    main_engine_steps: list[int] = []
+    side_engine_steps: list[int] = []
     successes = crashes = timeouts = unsuccessful_landings = other_terminations = 0
 
     for episode in range(episodes):
         observation, _ = env.reset(seed=seed + episode)
         total_reward = 0.0
         length = 0
+        main_steps = side_steps = 0
         while True:
             action, _ = model.predict(observation, deterministic=True)
+            action_id = int(np.asarray(action).item()) if np.asarray(action).ndim == 0 else None
+            main_steps += int(action_id == 2)
+            side_steps += int(action_id in (1, 3))
             observation, reward, terminated, truncated, info = env.step(action)
             total_reward += float(reward)
             length += 1
@@ -100,6 +106,8 @@ def evaluate(model, env, episodes: int, seed: int, center_tolerance: float) -> d
                     touchdown_angles.append(touchdown_metrics[1])
                     touchdown_offsets.append(touchdown_metrics[2])
                 fuel_used.append(float(info.get("fuel_used", 0.0)))
+                main_engine_steps.append(main_steps)
+                side_engine_steps.append(side_steps)
                 break
 
     return {
@@ -117,6 +125,8 @@ def evaluate(model, env, episodes: int, seed: int, center_tolerance: float) -> d
         "mean_touchdown_angle": statistics.fmean(touchdown_angles) if touchdown_angles else None,
         "mean_touchdown_offset": statistics.fmean(touchdown_offsets) if touchdown_offsets else None,
         "mean_fuel_used": statistics.fmean(fuel_used),
+        "mean_main_engine_steps": statistics.fmean(main_engine_steps),
+        "mean_side_engine_steps": statistics.fmean(side_engine_steps),
         "mean_episode_length": statistics.fmean(lengths),
         "median_episode_length": statistics.median(lengths),
         "crash_rate": crashes / episodes,
