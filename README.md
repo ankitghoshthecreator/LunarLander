@@ -223,12 +223,14 @@ rocket-lander-rl/
 └── results/                    # metrics.csv, plots/*.png
 ```
 
-### Phase 1 scaffold status
+### Implementation status
 
-The repository currently contains the Phase 1 package scaffold, editable-install
-metadata, four PPO reward configs, and `ShapedLander` with per-step reward
-telemetry. Reward wrapper tests live in `tests/test_reward.py`. Training,
-evaluation, and visualization commands are added in later phases.
+The repository features the complete RL pipeline:
+- `ShapedLander` reward wrapper supporting `default`, `sparse`, `shaped`, and `overshaped` modes with step penalties and configurable timeout penalties.
+- `train.py`: Full SB3 PPO training with TensorBoard logging, evaluation callbacks, and curriculum-transfer support (`--init-model`).
+- `evaluate.py`: Multi-seed evaluation with Wilson score confidence intervals, touchdown velocity/angle telemetry, and CSV/JSON reporting.
+- `watch.py`: Live Pygame visualizer with interactive top-left gravitation controls (Earth 9.8, Moon 1.62, Mars 3.71, etc.) and live Box2D physics manipulation.
+- Test suite: 57 passing unit tests across `tests/test_reward.py`, `tests/test_evaluate.py`, and `tests/test_train_init.py`.
 
 ### Local setup
 
@@ -445,7 +447,17 @@ Evaluate each trained model over **100 episodes** with fixed evaluation seeds.
 Three levels, build in this order:
 
 1. **Live training curves:** `tensorboard --logdir runs/` → open `localhost:6006`, auto-refreshes while training.
-2. **Live landing viewer (pygame):** `python -m rocketrl.watch --model models/ppo_shaped/latest.zip --follow` — opens the Box2D window, loops episodes, and reloads the checkpoint every ~30 s so you can **watch the agent improve while training runs** in another terminal.
+2. **Interactive landing viewer (pygame):**
+   ```powershell
+   python -m rocketrl.watch --model models/ppo_shaped_s0/best_model.zip
+   ```
+   - **Interactive gravitation HUD (top-left):** Click the input box to type any gravitation value (e.g., `9.8` for Earth, `1.62` for Moon, `3.71` for Mars, `15.0` for heavy gravity) and press Enter to instantly update the live Box2D physics simulation.
+   - **Preset buttons:** Instant toggles for `[Earth]`, `[Moon]`, `[Mars]`, and `[Default]`.
+   - **Hotkeys:**
+     - `Up` / `Down` arrows: Nudge gravitation by ±0.5 m/s² in real time.
+     - `R`: Instantly restart episode from the top under current gravity.
+     - `Space`: Pause / resume physics.
+   - **Live training follow mode:** Add `--follow` to auto-reload the checkpoint when updated during training.
 3. **Web demo (Gradio):** select a model (sparse / default / shaped / overshaped), click Run; frames stream from `rgb_array` rendering with a side panel showing altitude, speed, angle, fuel, and the running reward.
 
 Overlay ideas on the viewer: reward breakdown text, trajectory trail, success/crash counter, side-by-side agents (e.g., sparse vs. shaped running simultaneously).
@@ -623,28 +635,18 @@ if __name__ == "__main__":
     model.save(f"models/{name}/latest")
 ```
 
-### 14.3 `src/rocketrl/watch.py` (live viewer, follows checkpoints)
-```python
-import time, argparse, os, gymnasium as gym
-from stable_baselines3 import PPO
+### 14.3 `src/rocketrl/watch.py` (interactive viewer with gravity control)
 
-ap = argparse.ArgumentParser()
-ap.add_argument("--model", required=True)
-ap.add_argument("--follow", action="store_true")
-a = ap.parse_args()
-
-env = gym.make("LunarLander-v3", render_mode="human")
-model, mtime = PPO.load(a.model, device="cpu"), os.path.getmtime(a.model)
-obs, _ = env.reset()
-last = time.time()
-while True:
-    action, _ = model.predict(obs, deterministic=True)
-    obs, r, term, trunc, info = env.step(action)
-    if term or trunc:
-        obs, _ = env.reset()
-        if a.follow and time.time() - last > 30 and os.path.getmtime(a.model) != mtime:
-            model, mtime, last = PPO.load(a.model, device="cpu"), os.path.getmtime(a.model), time.time()
+Run with:
+```powershell
+python -m rocketrl.watch --model models/ppo_shaped_s0/best_model.zip [--gravity 9.8] [--follow] [--episodes 0]
 ```
+
+Features:
+- **Interactive Top-Left Gravitation HUD:** Text input box for on-the-fly gravity adjustments (`9.8` Earth, `1.62` Moon, etc.) affecting Box2D physics dynamically.
+- **Preset Buttons:** Quick buttons for Earth, Moon, Mars, and Default gravity.
+- **Keyboard Shortcuts:** `Up`/`Down` arrows adjust gravity by ±0.5, `R` restarts episode, `Space` toggles pause.
+- **Checkpoint Following:** Optional `--follow` polls for model updates every ~5 seconds.
 
 ### 14.4 Example config `configs/ppo_shaped.yaml`
 ```yaml

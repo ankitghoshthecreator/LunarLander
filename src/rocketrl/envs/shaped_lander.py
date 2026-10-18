@@ -21,6 +21,10 @@ DEFAULT_WEIGHTS: dict[str, float] = {
     "b_crash": 100.0,
     "b_center": 20.0,
     "gamma": 0.999,
+    # Positive magnitude subtracted on every sparse-mode transition; zero preserves the original sparse reward.
+    "sparse_step_penalty": 0.0,
+    # Positive penalty applied when an episode truncates (times out) without landing or crashing.
+    "b_timeout": 0.0,
     # Overshaped deliberately rewards proximity without an anti-hover cost.
     "overshaped_scale": 5.0,
 }
@@ -53,6 +57,20 @@ class ShapedLander(gym.Wrapper):
             raise ValueError(f"Unknown reward weight(s): {', '.join(sorted(unknown))}")
         if not 0.0 <= self.weights["gamma"] <= 1.0:
             raise ValueError("weights.gamma must be in [0, 1]")
+        try:
+            sparse_step_penalty = float(self.weights["sparse_step_penalty"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("weights.sparse_step_penalty must be a finite, non-negative penalty magnitude") from exc
+        if not np.isfinite(sparse_step_penalty) or sparse_step_penalty < 0.0:
+            raise ValueError("weights.sparse_step_penalty must be a finite, non-negative penalty magnitude")
+        self.weights["sparse_step_penalty"] = sparse_step_penalty
+        try:
+            b_timeout = float(self.weights["b_timeout"])
+        except (TypeError, ValueError) as exc:
+            raise ValueError("weights.b_timeout must be a finite, non-negative penalty magnitude") from exc
+        if not np.isfinite(b_timeout) or b_timeout < 0.0:
+            raise ValueError("weights.b_timeout must be a finite, non-negative penalty magnitude")
+        self.weights["b_timeout"] = b_timeout
         self._prev_phi = 0.0
         self._prev_components = (0.0, 0.0, 0.0, 0.0)
         self._episode_fuel = 0.0
@@ -108,8 +126,10 @@ class ShapedLander(gym.Wrapper):
         if self.mode == "default":
             reward = float(base_reward)
         elif self.mode == "sparse":
-            reward = 1.0 if landed else (-1.0 if crashed else 0.0)
-            terminal_component = reward
+            timeout_penalty = self.weights["b_timeout"] if (truncated and not terminated) else 0.0
+            terminal_component = 1.0 if landed else (-1.0 if crashed else -timeout_penalty)
+            time_component = -self.weights["sparse_step_penalty"]
+            reward = terminal_component + time_component
         else:
             w = self.weights
             if self.mode == "overshaped":
@@ -135,6 +155,10 @@ class ShapedLander(gym.Wrapper):
             self._prev_phi = phi
             self._prev_components = current_components
 
+        # True touchdown: the episode ended because the lander made contact (landed or crashed).
+        # Timeout final state: the episode was cut off by the time limit (truncated, not terminated).
+        # Keeping these separate prevents timeout kinematics from being mis-labelled as touchdowns.
+        is_true_touchdown = bool(terminated and (landed or crashed))
         info.update(
             landed=landed,
             crashed=crashed,
@@ -142,11 +166,16 @@ class ShapedLander(gym.Wrapper):
             x=x,
             y=y,
             speed=speed,
-            touchdown_speed=speed if (terminated or truncated) else None,
+            # episode_final_* are populated at every terminal/truncated step for logging convenience.
+            episode_final_speed=speed if (terminated or truncated) else None,
+            episode_final_angle=abs(angle) if (terminated or truncated) else None,
+            episode_final_x_offset=abs(x) if (terminated or truncated) else None,
+            # touchdown_* are populated only when the lander actually made contact.
+            touchdown_speed=speed if is_true_touchdown else None,
             angle=abs(angle),
-            touchdown_angle=abs(angle) if (terminated or truncated) else None,
+            touchdown_angle=abs(angle) if is_true_touchdown else None,
             x_offset=abs(x),
-            touchdown_x_offset=abs(x) if (terminated or truncated) else None,
+            touchdown_x_offset=abs(x) if is_true_touchdown else None,
             fuel_used=self._episode_fuel,
             reward_components={
                 "distance": distance_component,

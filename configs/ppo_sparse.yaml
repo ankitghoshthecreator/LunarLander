@@ -10,4 +10,5 @@ hparams:
   gamma: 0.999
   gae_lambda: 0.98
   ent_coef: 0.01
-weights: {}
+weights:
+  sparse_step_penalty: 0.0
