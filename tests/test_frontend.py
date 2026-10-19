@@ -210,3 +210,21 @@ def test_telemetry_extraction():
         assert isinstance(telem["speed"], float)
     finally:
         adapter.close()
+
+
+def test_render_frame_smoke():
+    """Verify captured frame has expected shape (400, 600, 3), dtype uint8, and non-trivial content."""
+    adapter = SimulationEnvironmentAdapter()
+    try:
+        adapter.reset(seed=42)
+        frame = adapter.render_frame()
+        assert frame is not None
+        assert isinstance(frame, np.ndarray)
+        assert frame.shape == (400, 600, 3)
+        assert frame.dtype == np.uint8
+        # Ensure frame contains rendered pixels (terrain, flags, stars/lander)
+        assert frame.max() > 0
+        assert frame.std() > 10.0
+    finally:
+        adapter.close()
+

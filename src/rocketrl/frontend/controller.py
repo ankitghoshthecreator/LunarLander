@@ -25,6 +25,7 @@ class SimulationController:
         self.adapter = adapter
         self.log_manager = log_manager or SessionLogManager()
         self.status: SimulationStatus = "READY"
+        self.last_outcome: str | None = None
         self.current_episode: int = 1
         self.selected_gravity: float = adapter.config.gravity
         self.last_frame: np.ndarray | None = None
@@ -39,15 +40,11 @@ class SimulationController:
 
     def run(self) -> None:
         """Start or resume simulation playback."""
-        if self.status in ("LANDED", "CRASHED", "TIMEOUT"):
-            # Start fresh episode if previously completed
-            self.reset(apply_new_gravity=True)
         self.status = "RUNNING"
 
     def pause(self) -> None:
         """Pause simulation without resetting episode state."""
-        if self.status == "RUNNING":
-            self.status = "PAUSED"
+        self.status = "PAUSED"
 
     def reset(self, apply_new_gravity: bool = True) -> None:
         """Reset the current episode and apply the selected gravity."""
@@ -60,6 +57,9 @@ class SimulationController:
 
     def step(self, num_steps: int = 1) -> tuple[np.ndarray | None, bool]:
         """Execute one or more simulation steps.
+
+        In RUNNING mode, completed episodes are logged and the next episode is
+        automatically started so rollouts continue seamlessly without freezing.
 
         Returns:
             (last_frame, episode_completed)
@@ -74,16 +74,7 @@ class SimulationController:
                 episode_done = True
                 summary = self.adapter.get_episode_summary()
                 outcome = summary["outcome"]
-
-                # Update status
-                if outcome == "LANDED (SUCCESS)":
-                    self.status = "LANDED"
-                elif outcome == "CRASHED":
-                    self.status = "CRASHED"
-                elif outcome == "TIMEOUT":
-                    self.status = "TIMEOUT"
-                else:
-                    self.status = "READY"
+                self.last_outcome = outcome
 
                 # Record in session log manager
                 record = EpisodeRecord(
@@ -98,6 +89,9 @@ class SimulationController:
                 )
                 self.log_manager.add_record(record)
                 self.current_episode += 1
+
+                # Automatically prepare next episode and continue running
+                self.adapter.reset()
                 break
 
         self.last_frame = self.adapter.render_frame()

@@ -2,11 +2,11 @@
 LunarLander RL — Full-Screen Dark Sci-Fi Dashboard
 ===================================================
 A real-time reinforcement learning simulation showcase with:
-- Main Game Viewport (75-80% width) featuring live PyGame Box2D frame rendering
-- Live Telemetry HUD Overlay (X/Y position, velocity, orientation, leg contacts)
-- Top Control Bar (Gravity slider, Run/Pause/Reset, live status badge)
+- Main Game Viewport (76% width) featuring live PyGame Box2D frame rendering
+- Live Telemetry HUD Strip (X/Y position, velocities, speed, tilt angle, leg contacts, gravity)
+- Top Control Bar (Gravity slider [0.5 - 11.9 m/s²], Run/Pause/Reset, live status badge)
 - Right-Side Training Log (PUBG / Among Us style scrollable feed with color-coded outcomes)
-- Bottom Telemetry & Performance HUD (Rewards, steps, fuel, recent success rate)
+- Bottom Performance HUD (Episode, Total Reward, Steps, Duration, 20-Ep Success Rate, Fuel)
 
 Launch with:
     .\.venv\Scripts\python.exe -m streamlit run app/dashboard.py
@@ -14,10 +14,12 @@ Launch with:
 
 from __future__ import annotations
 
+import html
 import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import streamlit as st
@@ -35,7 +37,7 @@ from rocketrl.frontend.config import (
     SimulationConfig,
 )
 from rocketrl.frontend.controller import SimulationController
-from rocketrl.frontend.metrics import OUTCOME_COLORS, SessionLogManager
+from rocketrl.frontend.metrics import OUTCOME_COLORS, EpisodeRecord, SessionLogManager
 
 # ── Set Streamlit Page Config ────────────────────────────────────────────────
 st.set_page_config(
@@ -49,16 +51,19 @@ st.set_page_config(
 st.markdown(
     """
     <style>
-    /* Global Reset & Dark Sci-Fi Palette */
+    /* Global Reset & Sci-Fi Dark Palette */
     html, body, [data-testid="stAppViewContainer"] {
-        background: radial-gradient(circle at 50% 15%, #0f172a 0%, #070b14 100%) !important;
+        background: radial-gradient(circle at 50% 10%, #0d1527 0%, #050811 100%) !important;
         color: #e2e8f0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, monospace;
         overflow-x: hidden;
     }
-    [data-testid="stHeader"] { background: transparent !important; }
+    [data-testid="stHeader"] { background: transparent !important; height: 0 !important; }
     .block-container {
-        padding: 0.6rem 1.4rem 1.2rem 1.4rem !important;
+        padding-top: 0.4rem !important;
+        padding-bottom: 0.4rem !important;
+        padding-left: 1rem !important;
+        padding-right: 1rem !important;
         max-width: 100% !important;
     }
     #MainMenu, footer { visibility: hidden !important; }
@@ -69,10 +74,10 @@ st.markdown(
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         border: 1px solid rgba(0, 195, 255, 0.22);
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.55), inset 0 0 15px rgba(0, 195, 255, 0.04);
-        border-radius: 10px;
-        padding: 0.6rem 1.2rem;
-        margin-bottom: 0.8rem;
+        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55), inset 0 0 15px rgba(0, 195, 255, 0.04);
+        border-radius: 8px;
+        padding: 0.5rem 1rem;
+        margin-bottom: 0.5rem;
         display: flex;
         align-items: center;
         justify-content: space-between;
@@ -80,24 +85,22 @@ st.markdown(
 
     .brand-title {
         font-family: 'Consolas', 'Courier New', monospace;
-        font-size: 1.35rem;
+        font-size: 1.25rem;
         font-weight: 800;
-        letter-spacing: 2.5px;
+        letter-spacing: 2px;
         color: #00d2ff;
         text-shadow: 0 0 12px rgba(0, 210, 255, 0.6);
         text-transform: uppercase;
         margin: 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        line-height: 1.2;
     }
 
     .brand-subtitle {
-        font-size: 0.68rem;
+        font-size: 0.65rem;
         color: #64748b;
-        letter-spacing: 1.5px;
+        letter-spacing: 1.2px;
         text-transform: uppercase;
-        margin-top: -2px;
+        margin-top: 1px;
     }
 
     /* Status Badges */
@@ -105,12 +108,12 @@ st.markdown(
         display: inline-flex;
         align-items: center;
         gap: 6px;
-        padding: 0.25rem 0.75rem;
-        border-radius: 20px;
-        font-size: 0.74rem;
+        padding: 0.25rem 0.7rem;
+        border-radius: 16px;
+        font-size: 0.72rem;
         font-weight: 700;
         font-family: 'Consolas', monospace;
-        letter-spacing: 1.5px;
+        letter-spacing: 1.2px;
         text-transform: uppercase;
     }
     .status-ready   { background: rgba(0, 180, 216, 0.15); border: 1px solid #00b4d8; color: #00b4d8; }
@@ -129,70 +132,74 @@ st.markdown(
     }
     @keyframes pulse-glow {
         0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.35; transform: scale(0.85); }
+        50% { opacity: 0.3; transform: scale(0.85); }
     }
 
-    /* Simulation Viewport Container */
-    .viewport-box {
-        position: relative;
-        background: #02040a;
-        border: 1px solid rgba(0, 195, 255, 0.3);
-        border-radius: 10px;
-        box-shadow: 0 0 25px rgba(0, 195, 255, 0.12), inset 0 0 15px rgba(0, 0, 0, 0.9);
-        overflow: hidden;
-    }
-
-    /* Telemetry HUD Panel (Left Glass Card) */
-    .telem-overlay {
-        background: rgba(10, 16, 28, 0.82);
+    /* Telemetry HUD Strip (Above Canvas) */
+    .telem-bar {
+        background: rgba(10, 16, 28, 0.88);
         backdrop-filter: blur(10px);
         -webkit-backdrop-filter: blur(10px);
-        border: 1px solid rgba(0, 195, 255, 0.22);
-        border-radius: 8px;
-        padding: 0.6rem 0.9rem;
-        margin-bottom: 0.6rem;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.45);
-    }
-    .telem-header {
-        font-size: 0.68rem;
-        color: #00d2ff;
-        font-family: 'Consolas', monospace;
-        letter-spacing: 2px;
-        text-transform: uppercase;
+        border: 1px solid rgba(0, 195, 255, 0.25);
+        border-radius: 6px;
+        padding: 0.35rem 0.65rem;
         margin-bottom: 0.4rem;
-        border-bottom: 1px solid rgba(0, 195, 255, 0.2);
-        padding-bottom: 0.2rem;
         display: flex;
+        flex-wrap: nowrap;
         justify-content: space-between;
-    }
-    .telem-grid {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 6px 12px;
-        font-size: 0.72rem;
+        align-items: center;
+        gap: 6px;
         font-family: 'Consolas', monospace;
+        font-size: 0.7rem;
+        overflow-x: auto;
     }
-    .telem-item {
+    .telem-col {
         display: flex;
-        flex-direction: column;
+        align-items: center;
+        gap: 4px;
+        white-space: nowrap;
     }
-    .telem-k { color: #64748b; font-size: 0.64rem; text-transform: uppercase; }
-    .telem-v { color: #e2e8f0; font-weight: 700; }
+    .telem-k { color: #64748b; font-size: 0.62rem; text-transform: uppercase; font-weight: 600; }
+    .telem-v { color: #f1f5f9; font-weight: 700; }
     .telem-good { color: #00ff88; font-weight: 700; }
     .telem-warn { color: #ffaa00; font-weight: 700; }
     .telem-alert { color: #ff4455; font-weight: 700; }
+    .telem-sep { color: rgba(0, 195, 255, 0.25); margin: 0 2px; }
+
+    /* Simulation Viewport & Frame Styling */
+    [data-testid="stImage"] {
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+        background: #000000 !important;
+        border: 1px solid rgba(0, 195, 255, 0.32) !important;
+        border-radius: 8px !important;
+        padding: 0 !important;
+        margin: 0 auto !important;
+        overflow: hidden !important;
+        box-shadow: 0 0 24px rgba(0, 195, 255, 0.12), inset 0 0 25px rgba(0, 0, 0, 0.95) !important;
+    }
+    [data-testid="stImage"] img {
+        max-height: 53vh !important;
+        width: auto !important;
+        max-width: 100% !important;
+        aspect-ratio: 600 / 400 !important;
+        object-fit: contain !important;
+        display: block !important;
+        margin: 0 auto !important;
+    }
 
     /* Bottom HUD bar */
     .bottom-hud {
         background: rgba(15, 23, 42, 0.75);
         backdrop-filter: blur(12px);
         border: 1px solid rgba(0, 195, 255, 0.2);
-        border-radius: 8px;
-        padding: 0.5rem 0.9rem;
-        margin-top: 0.5rem;
+        border-radius: 6px;
+        padding: 0.4rem 0.8rem;
+        margin-top: 0.4rem;
         display: grid;
         grid-template-columns: repeat(6, 1fr);
-        gap: 8px;
+        gap: 6px;
         text-align: center;
         font-family: 'Consolas', monospace;
     }
@@ -201,44 +208,45 @@ st.markdown(
         flex-direction: column;
         justify-content: center;
     }
-    .hud-lbl { font-size: 0.62rem; color: #64748b; text-transform: uppercase; letter-spacing: 1px; }
-    .hud-val { font-size: 1.05rem; font-weight: 800; color: #f1f5f9; margin-top: 2px; }
+    .hud-lbl { font-size: 0.6rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; }
+    .hud-val { font-size: 0.98rem; font-weight: 800; color: #f1f5f9; margin-top: 1px; }
 
-    /* Right-Side Training Log (PUBG / Among Us Style) */
+    /* Right-Side Training Log Panel (PUBG / Among Us Style) */
     .log-panel-card {
         background: rgba(15, 23, 42, 0.78);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         border: 1px solid rgba(0, 195, 255, 0.22);
-        border-radius: 10px;
+        border-radius: 8px;
         box-shadow: 0 4px 20px rgba(0, 0, 0, 0.55);
-        padding: 0.75rem 1rem;
+        padding: 0.6rem 0.8rem;
         display: flex;
         flex-direction: column;
+        height: 100%;
     }
     .log-panel-header {
         font-family: 'Consolas', monospace;
-        font-size: 0.78rem;
+        font-size: 0.74rem;
         font-weight: 800;
-        letter-spacing: 2px;
+        letter-spacing: 1.5px;
         color: #00d2ff;
         text-transform: uppercase;
         border-bottom: 1px solid rgba(0, 195, 255, 0.2);
-        padding-bottom: 0.4rem;
-        margin-bottom: 0.6rem;
+        padding-bottom: 0.35rem;
+        margin-bottom: 0.45rem;
         display: flex;
         justify-content: space-between;
         align-items: center;
     }
     .feed-container {
-        height: 480px;
+        height: calc(53vh + 88px);
         overflow-y: auto;
         display: flex;
         flex-direction: column;
         gap: 6px;
         padding-right: 4px;
         scrollbar-width: thin;
-        scrollbar-color: rgba(0, 195, 255, 0.3) transparent;
+        scrollbar-color: rgba(0, 195, 255, 0.35) transparent;
     }
     .feed-container::-webkit-scrollbar { width: 4px; }
     .feed-container::-webkit-scrollbar-thumb {
@@ -246,52 +254,66 @@ st.markdown(
         border-radius: 3px;
     }
 
-    /* Feed item (PUBG/Among Us Kill-feed style) */
+    /* PUBG / Among Us Kill-feed style Item */
     .feed-item {
-        background: rgba(10, 16, 28, 0.85);
-        border-left: 3px solid;
-        border-radius: 6px;
-        padding: 0.45rem 0.65rem;
+        background: rgba(10, 16, 28, 0.88);
+        border-left: 3px solid #00b4d8;
+        border-radius: 5px;
+        padding: 0.4rem 0.6rem;
         font-family: 'Consolas', monospace;
-        font-size: 0.74rem;
         display: flex;
         flex-direction: column;
         gap: 2px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.3);
-        transition: transform 0.15s ease;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
+        transition: transform 0.12s ease;
     }
     .feed-item:hover {
         transform: translateX(2px);
     }
-    .feed-top-row {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-    }
-    .feed-ep-badge {
+    .feed-title-line {
+        font-size: 0.73rem;
         font-weight: 700;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .feed-ep-label {
         color: #94a3b8;
     }
-    .feed-outcome-tag {
+    .feed-tag {
         font-weight: 800;
-        font-size: 0.7rem;
-        letter-spacing: 0.8px;
+        font-size: 0.68rem;
+        letter-spacing: 0.6px;
     }
-    .feed-details-row {
+    .feed-details-line {
+        font-size: 0.67rem;
+        color: #cbd5e1;
         display: flex;
         justify-content: space-between;
-        color: #cbd5e1;
-        font-size: 0.68rem;
+        align-items: center;
+        border-top: 1px solid rgba(255, 255, 255, 0.05);
+        padding-top: 2px;
+        margin-top: 1px;
     }
-    .feed-rew { font-weight: 700; }
-    .feed-time { color: #64748b; font-size: 0.62rem; }
+    .feed-details-line b {
+        font-weight: 700;
+    }
+    .feed-empty {
+        color: #64748b;
+        font-size: 0.72rem;
+        text-align: center;
+        padding: 3rem 1rem;
+        font-family: 'Consolas', monospace;
+        line-height: 1.5;
+    }
 
-    /* Streamlit Button Tweaks */
+    /* Streamlit Button Styling */
     div.stButton > button {
         border-radius: 6px !important;
         font-family: 'Consolas', monospace !important;
         font-weight: 700 !important;
-        letter-spacing: 1px !important;
+        letter-spacing: 0.8px !important;
+        padding: 0.35rem 0.6rem !important;
         transition: all 0.2s ease !important;
     }
     </style>
@@ -306,7 +328,6 @@ def get_trained_model() -> Any:
     """Load default trained PPO model if available, else None (fallback)."""
     model_path = ROOT_DIR / "models" / "ppo_shaped_s0" / "best_model.zip"
     if not model_path.exists():
-        # Fallback to default model or any best_model.zip
         candidates = list((ROOT_DIR / "models").glob("*/best_model.zip"))
         if candidates:
             model_path = candidates[0]
@@ -347,7 +368,7 @@ ctrl: SimulationController = st.session_state.controller
 # Compact top control bar with title, gravity slider, status badge, and Run/Pause/Reset
 with st.container():
     top_col_brand, top_col_grav, top_col_status, top_col_actions = st.columns(
-        [2.3, 3.4, 1.8, 2.5], gap="small"
+        [2.2, 3.5, 1.8, 2.5], gap="small"
     )
 
     with top_col_brand:
@@ -355,7 +376,7 @@ with st.container():
             """
             <div>
                 <div class="brand-title">🚀 LUNARLANDER RL</div>
-                <div class="brand-subtitle">Box2D · Gymnasium-v3 · PPO Agent</div>
+                <div class="brand-subtitle">Box2D · Autonomous PPO Agent</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -371,7 +392,7 @@ with st.container():
             value=float(current_g),
             step=0.1,
             key="gravity_slider",
-            help="Adjust downward gravitational acceleration in Box2D simulator. Applied live to environment.",
+            help="Adjust physical downward gravity in Box2D simulator. Clamped to safe Box2D physics limits [0.5, 11.9].",
         )
         if abs(selected_g - current_g) >= 0.05:
             ctrl.set_gravity(selected_g)
@@ -404,7 +425,7 @@ with st.container():
             <div style="margin-top: 10px;">
                 <span class="status-badge {badge_cls}">
                     <span class="pulse-dot" style="background:{dot_color};"></span>
-                    {status}
+                    {html.escape(status)}
                 </span>
             </div>
             """,
@@ -424,16 +445,70 @@ with st.container():
             if st.button("🔄 Reset", use_container_width=True, key="btn_reset"):
                 ctrl.reset(apply_new_gravity=True)
 
-st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
 
 
-# ── MAIN BODY: 78% VIEWPORT (LEFT) & 22% TRAINING LOG (RIGHT) ────────────────
-col_viewport, col_feed = st.columns([78, 22], gap="medium")
+# ── LOG FEED HTML GENERATOR (Strictly unindented for CommonMark safety) ───────
+def generate_log_feed_html(records: list[EpisodeRecord], current_ep: int) -> str:
+    """Generate self-contained, valid HTML string for the training log panel.
+
+    All lines have zero indentation to prevent CommonMark from treating HTML
+    as indented code blocks (<pre><code>).
+    """
+    lines: list[str] = [
+        '<div class="log-panel-card">',
+        '<div class="log-panel-header">',
+        '<span>📋 TRAINING LOG</span>',
+        f'<span style="font-size:0.65rem;color:#00d2ff;">EP #{current_ep}</span>',
+        '</div>',
+        '<div class="feed-container">',
+    ]
+
+    if not records:
+        lines.append('<div class="feed-empty">')
+        lines.append('Simulation standing by.<br>Click <b>▶ Run</b> to start rollouts.')
+        lines.append('</div>')
+    else:
+        for r in records:
+            style = OUTCOME_COLORS.get(r.outcome, OUTCOME_COLORS["OTHER TERMINATION"])
+            rew_str = f"{r.raw_reward:+.1f}"
+            rew_color = "#00ff88" if r.raw_reward >= 0 else "#ff5555"
+            esc_outcome = html.escape(r.outcome)
+            esc_icon = html.escape(style["icon"])
+            esc_time = html.escape(r.timestamp)
+
+            lines.append(
+                f'<div class="feed-item" style="border-left-color: {style["border"]};">'
+            )
+            # Top line: Episode 73: LANDED (SUCCESS)
+            lines.append('<div class="feed-title-line">')
+            lines.append(f'<span class="feed-ep-label">Episode {r.episode_id}:</span>')
+            lines.append(
+                f'<span class="feed-tag" style="color: {style["color"]};">{esc_icon} {esc_outcome}</span>'
+            )
+            lines.append('</div>')
+            # Bottom line: Total Reward: +247.9 | Steps: 321
+            lines.append('<div class="feed-details-line">')
+            lines.append(
+                f'<span>Total Reward: <b style="color: {rew_color};">{rew_str}</b></span>'
+            )
+            lines.append(f'<span>Steps: {r.steps:,}</span>')
+            lines.append(f'<span style="color:#64748b;">{esc_time}</span>')
+            lines.append('</div>')
+            lines.append('</div>')
+
+    lines.append('</div>')  # close .feed-container
+    lines.append('</div>')  # close .log-panel-card
+    return "".join(lines)
 
 
-# ── FRAGMENT: Live Simulation & HUD Update ───────────────────────────────────
+# ── MAIN BODY: 76% VIEWPORT (LEFT) & 24% TRAINING LOG (RIGHT) ────────────────
+col_viewport, col_feed = st.columns([76, 24], gap="medium")
+
+
+# ── FRAGMENT: Live Simulation & Telemetry Update ─────────────────────────────
 # We use @st.fragment so frames update fluidly at ~25 FPS without rerunning
-# the top slider, preventing UI input latency or flickering.
+# the whole script or slider, preventing UI input latency or flickering.
 @st.fragment(run_every="40ms")
 def render_live_simulation() -> None:
     # Advance simulation if currently in RUNNING state
@@ -446,81 +521,59 @@ def render_live_simulation() -> None:
 
     # Left Viewport & Telemetry
     with col_viewport:
-        # 1. Telemetry HUD Overlay
+        # 1. Compact Cockpit Telemetry Bar
         angle_deg = telemetry["angle"] * (180.0 / np.pi)
         ang_cls = "telem-alert" if telemetry["angle_warning"] else "telem-good"
         speed_cls = "telem-alert" if telemetry["speed_warning"] else "telem-good"
-        leg_l_str = "CONTACT" if telemetry["left_leg"] else "CLEAR"
-        leg_r_str = "CONTACT" if telemetry["right_leg"] else "CLEAR"
+        vy_cls = "telem-alert" if telemetry["vy"] < -0.8 else "telem-good"
+        leg_l_str = "DOWN" if telemetry["left_leg"] else "OFF"
+        leg_r_str = "DOWN" if telemetry["right_leg"] else "OFF"
         leg_l_cls = "telem-good" if telemetry["left_leg"] else "telem-k"
         leg_r_cls = "telem-good" if telemetry["right_leg"] else "telem-k"
 
         st.markdown(
             f"""
-            <div class="telem-overlay">
-                <div class="telem-header">
-                    <span>📡 Live Telemetry</span>
-                    <span>Gravity: {ctrl.selected_gravity:.1f} m/s²</span>
-                </div>
-                <div class="telem-grid">
-                    <div class="telem-item">
-                        <span class="telem-k">X Position</span>
-                        <span class="telem-v">{telemetry['x_pos']:+.3f}</span>
-                    </div>
-                    <div class="telem-item">
-                        <span class="telem-k">Y Altitude</span>
-                        <span class="telem-v">{telemetry['y_pos']:.3f}</span>
-                    </div>
-                    <div class="telem-item">
-                        <span class="telem-k">Horizontal Vx</span>
-                        <span class="telem-v">{telemetry['vx']:+.3f}</span>
-                    </div>
-                    <div class="telem-item">
-                        <span class="telem-k">Vertical Vy</span>
-                        <span class="telem-v {speed_cls}">{telemetry['vy']:+.3f}</span>
-                    </div>
-                    <div class="telem-item">
-                        <span class="telem-k">Speed √(vx²+vy²)</span>
-                        <span class="telem-v {speed_cls}">{telemetry['speed']:.3f}</span>
-                    </div>
-                    <div class="telem-item">
-                        <span class="telem-k">Tilt Angle</span>
-                        <span class="telem-v {ang_cls}">{angle_deg:+.1f}° ({telemetry['angle']:+.3f} rad)</span>
-                    </div>
-                    <div class="telem-item">
-                        <span class="telem-k">Angular Vel</span>
-                        <span class="telem-v">{telemetry['angular_velocity']:+.3f}</span>
-                    </div>
-                    <div class="telem-item">
-                        <span class="telem-k">Landing Legs</span>
-                        <span class="telem-v">
-                            L:<span class="{leg_l_cls}">{leg_l_str}</span> | R:<span class="{leg_r_cls}">{leg_r_str}</span>
-                        </span>
-                    </div>
-                </div>
+            <div class="telem-bar">
+                <div class="telem-col"><span class="telem-k">X:</span><span class="telem-v">{telemetry['x_pos']:+.2f}</span></div>
+                <span class="telem-sep">|</span>
+                <div class="telem-col"><span class="telem-k">Y:</span><span class="telem-v">{telemetry['y_pos']:.2f}</span></div>
+                <span class="telem-sep">|</span>
+                <div class="telem-col"><span class="telem-k">Vx:</span><span class="telem-v">{telemetry['vx']:+.2f}</span></div>
+                <span class="telem-sep">|</span>
+                <div class="telem-col"><span class="telem-k">Vy:</span><span class="telem-v {vy_cls}">{telemetry['vy']:+.2f}</span></div>
+                <span class="telem-sep">|</span>
+                <div class="telem-col"><span class="telem-k">SPD:</span><span class="telem-v {speed_cls}">{telemetry['speed']:.2f}</span></div>
+                <span class="telem-sep">|</span>
+                <div class="telem-col"><span class="telem-k">TILT:</span><span class="telem-v {ang_cls}">{angle_deg:+.1f}°</span></div>
+                <span class="telem-sep">|</span>
+                <div class="telem-col"><span class="telem-k">ANG VEL:</span><span class="telem-v">{telemetry['angular_velocity']:+.2f}</span></div>
+                <span class="telem-sep">|</span>
+                <div class="telem-col"><span class="telem-k">LEGS:</span><span class="telem-v">L:<span class="{leg_l_cls}">{leg_l_str}</span> R:<span class="{leg_r_cls}">{leg_r_str}</span></span></div>
+                <span class="telem-sep">|</span>
+                <div class="telem-col"><span class="telem-k">G:</span><span class="telem-v" style="color:#00d2ff;">{ctrl.selected_gravity:.1f}</span></div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-        # 2. Main Game Screen
+        # 2. Main Game Viewport (Real PyGame / Box2D frame)
         if frame is not None:
             st.image(frame, use_container_width=True)
         else:
-            st.info("Simulation initialized. Click 'Run' to begin.")
+            st.info("Simulation standing by. Click '▶ Run' to start.")
 
-        # 3. Bottom HUD Bar
+        # 3. Bottom Performance HUD
         raw_rew = summary["raw_reward"]
         recent_sr = ctrl.log_manager.recent_success_rate(window=20)
         st.markdown(
             f"""
             <div class="bottom-hud">
                 <div class="hud-cell">
-                    <span class="hud-lbl">Current Episode</span>
+                    <span class="hud-lbl">Episode</span>
                     <span class="hud-val">#{ctrl.current_episode}</span>
                 </div>
                 <div class="hud-cell">
-                    <span class="hud-lbl">Total Reward (Raw)</span>
+                    <span class="hud-lbl">Reward (Raw)</span>
                     <span class="hud-val" style="color: {'#00ff88' if raw_rew >= 0 else '#ff5555'};">
                         {raw_rew:+.1f}
                     </span>
@@ -534,11 +587,11 @@ def render_live_simulation() -> None:
                     <span class="hud-val">{summary['duration_seconds']:.1f}s</span>
                 </div>
                 <div class="hud-cell">
-                    <span class="hud-lbl">Success Rate (20ep)</span>
+                    <span class="hud-lbl">Success (20ep)</span>
                     <span class="hud-val" style="color: #00d2ff;">{recent_sr:.0f}%</span>
                 </div>
                 <div class="hud-cell">
-                    <span class="hud-lbl">Fuel Consumed</span>
+                    <span class="hud-lbl">Fuel Used</span>
                     <span class="hud-val" style="color: #cbd5e1;">{summary['fuel_used']:.0f}</span>
                 </div>
             </div>
@@ -546,68 +599,11 @@ def render_live_simulation() -> None:
             unsafe_allow_html=True,
         )
 
-    # Right Training Log Panel (PUBG / Among Us Style)
+    # Right-Side Training Log Panel (PUBG / Among Us Style)
     with col_feed:
         records = ctrl.log_manager.recent_records
-        st.markdown(
-            f"""
-            <div class="log-panel-card">
-                <div class="log-panel-header">
-                    <span>📋 Training Log</span>
-                    <span style="font-size: 0.65rem; color: #94a3b8;">Ep #{ctrl.current_episode}</span>
-                </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        if not records:
-            st.markdown(
-                """
-                <div class="feed-container">
-                    <div style="color: #64748b; font-size: 0.75rem; text-align: center; padding: 2rem 0; font-family: monospace;">
-                        Simulation standing by.<br>
-                        Click '▶ Run' to start rollouts.
-                    </div>
-                </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-        else:
-            feed_items_html = []
-            for r in records:
-                style = OUTCOME_COLORS.get(
-                    r.outcome, OUTCOME_COLORS["OTHER TERMINATION"]
-                )
-                raw_str = f"{r.raw_reward:+.1f}"
-                feed_items_html.append(
-                    f"""
-                    <div class="feed-item" style="border-left-color: {style['border']};">
-                        <div class="feed-top-row">
-                            <span class="feed-ep-badge">#{r.episode_id}</span>
-                            <span class="feed-outcome-tag" style="color: {style['color']};">
-                                {style['icon']} {r.outcome}
-                            </span>
-                        </div>
-                        <div class="feed-details-row">
-                            <span class="feed-rew">Reward: {raw_str}</span>
-                            <span>{r.steps:,} steps</span>
-                            <span class="feed-time">{r.timestamp}</span>
-                        </div>
-                    </div>
-                    """
-                )
-
-            joined_items = "".join(feed_items_html)
-            st.markdown(
-                f"""
-                <div class="feed-container">
-                    {joined_items}
-                </div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        feed_html = generate_log_feed_html(records, ctrl.current_episode)
+        st.markdown(feed_html, unsafe_allow_html=True)
 
 
 # Render the interactive fragment
