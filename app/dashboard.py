@@ -2,11 +2,11 @@
 LunarLander RL — Full-Screen Dark Sci-Fi Dashboard
 ===================================================
 A real-time reinforcement learning simulation showcase with:
-- Main Game Viewport (76% width) featuring live PyGame Box2D frame rendering
+- Main Game Viewport (76% width) featuring live high-resolution Box2D frame rendering
 - Floating Telemetry Glass Card (X/Y position, velocities, angle, leg contacts, fuel)
-- Top Control Bar (Gravity slider, Mode, Model Checkpoint, Run/Pause/Reset, live status badge)
+- Top Control Bar (Gravity slider, Mode, Model Checkpoint, Run/Pause/Reset)
 - Right-Side Training Log (Glassmorphism scrollable action feed with color-coded outcomes)
-- Bottom Performance HUD (Episode, Total Reward, Steps, Fuel Used, Episode Time, Success Rate)
+- Floating Bottom Performance HUD Dock (Episode, Total Reward, Steps, Fuel Used, Episode Time, Success Rate)
 
 Launch with:
     .\.venv\Scripts\python.exe -m streamlit run app/dashboard.py
@@ -14,7 +14,9 @@ Launch with:
 
 from __future__ import annotations
 
+import base64
 import html
+import io
 import os
 import sys
 import time
@@ -22,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from PIL import Image
 import streamlit as st
 
 # ── Ensure project root and src/ are importable ──────────────────────────────
@@ -53,15 +56,15 @@ st.markdown(
     <style>
     /* Global Reset & Sci-Fi Dark Palette */
     html, body, [data-testid="stAppViewContainer"] {
-        background: radial-gradient(circle at 50% 10%, #0d1527 0%, #050811 100%) !important;
+        background: #040814 !important;
         color: #e2e8f0;
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, monospace;
         overflow-x: hidden;
     }
     [data-testid="stHeader"] { background: transparent !important; height: 0 !important; }
     .block-container {
-        padding-top: 0.4rem !important;
-        padding-bottom: 0.4rem !important;
+        padding-top: 0.35rem !important;
+        padding-bottom: 0.35rem !important;
         padding-left: 0.8rem !important;
         padding-right: 0.8rem !important;
         max-width: 100% !important;
@@ -69,211 +72,219 @@ st.markdown(
     #MainMenu, footer { visibility: hidden !important; }
 
     /* Top Control Bar */
-    .top-bar-container {
-        background: rgba(15, 23, 42, 0.75);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        border: 1px solid rgba(0, 195, 255, 0.22);
-        box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55), inset 0 0 15px rgba(0, 195, 255, 0.04);
-        border-radius: 8px;
-        padding: 0.4rem 0.8rem;
-        margin-bottom: 0.45rem;
-    }
-
     .brand-title {
-        font-family: 'Consolas', 'Courier New', monospace;
-        font-size: 1.22rem;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+        font-size: 1.35rem;
         font-weight: 800;
-        letter-spacing: 1.5px;
-        color: #00d2ff;
-        text-shadow: 0 0 12px rgba(0, 210, 255, 0.6);
-        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        color: #ffffff;
         margin: 0;
         display: flex;
         align-items: center;
-        gap: 6px;
+        gap: 8px;
         white-space: nowrap;
+        line-height: 2.2;
     }
 
-    /* Status Badges */
-    .status-badge {
-        display: inline-flex;
-        align-items: center;
-        gap: 5px;
-        padding: 0.2rem 0.6rem;
-        border-radius: 14px;
-        font-size: 0.68rem;
-        font-weight: 700;
-        font-family: 'Consolas', monospace;
-        letter-spacing: 1px;
-        text-transform: uppercase;
+    /* Streamlit Input / Dropdown Tweaks */
+    div[data-testid="stSelectbox"] label,
+    div[data-testid="stSlider"] label {
+        font-size: 0.72rem !important;
+        color: #94a3b8 !important;
+        font-weight: 600 !important;
+        margin-bottom: -4px !important;
     }
-    .status-ready   { background: rgba(0, 180, 216, 0.15); border: 1px solid #00b4d8; color: #00b4d8; }
-    .status-running { background: rgba(0, 255, 136, 0.15); border: 1px solid #00ff88; color: #00ff88; box-shadow: 0 0 10px rgba(0,255,136,0.3); }
-    .status-paused  { background: rgba(255, 170, 0, 0.15); border: 1px solid #ffaa00; color: #ffaa00; }
-    .status-landed  { background: rgba(0, 255, 136, 0.25); border: 1px solid #00ff88; color: #00ff88; box-shadow: 0 0 12px rgba(0,255,136,0.4); }
-    .status-crashed { background: rgba(255, 68, 85, 0.25); border: 1px solid #ff4455; color: #ff4455; box-shadow: 0 0 12px rgba(255,68,85,0.4); }
-    .status-timeout { background: rgba(255, 170, 0, 0.25); border: 1px solid #ffaa00; color: #ffaa00; }
-
-    .pulse-dot {
-        width: 6px;
-        height: 6px;
-        border-radius: 50%;
-        display: inline-block;
-        animation: pulse-glow 1.5s infinite;
-    }
-    @keyframes pulse-glow {
-        0%, 100% { opacity: 1; transform: scale(1); }
-        50% { opacity: 0.3; transform: scale(0.85); }
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] {
+        background: rgba(15, 23, 42, 0.85) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 6px !important;
+        color: #f1f5f9 !important;
+        font-size: 0.78rem !important;
     }
 
-    /* Simulation Viewport & Column Styling */
-    [data-testid="column"]:first-child {
+    /* Slider Styling */
+    div[data-testid="stSlider"] [data-baseweb="slider"] {
+        margin-top: -6px !important;
+    }
+
+    /* Action Buttons */
+    div[data-testid="stButton"] button {
+        border-radius: 6px !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        font-weight: 700 !important;
+        font-size: 0.85rem !important;
+        padding: 0.4rem 0.8rem !important;
+        transition: all 0.2s ease !important;
+    }
+
+    /* Vibrant Green Run Button */
+    button[kind="primary"] {
+        background: #00c853 !important;
+        border: 1px solid #00e676 !important;
+        color: #ffffff !important;
+        box-shadow: 0 0 14px rgba(0, 200, 83, 0.45) !important;
+    }
+    button[kind="primary"]:hover {
+        background: #00e676 !important;
+        box-shadow: 0 0 20px rgba(0, 230, 118, 0.65) !important;
+    }
+
+    button[kind="secondary"] {
+        background: rgba(30, 41, 59, 0.85) !important;
+        border: 1px solid rgba(255, 255, 255, 0.18) !important;
+        color: #e2e8f0 !important;
+    }
+    button[kind="secondary"]:hover {
+        border-color: #00d2ff !important;
+        color: #00d2ff !important;
+        box-shadow: 0 0 10px rgba(0, 210, 255, 0.3) !important;
+    }
+
+    /* Viewport Card & Canvas (Edge-to-Edge Full Bleed Left Column) */
+    .viewport-card {
         position: relative !important;
-    }
-
-    [data-testid="stImage"] {
         width: 100% !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-        background: #000000 !important;
-        border: 1px solid rgba(0, 195, 255, 0.3) !important;
-        border-radius: 8px !important;
+        aspect-ratio: 16 / 9 !important;
+        border-radius: 10px !important;
         overflow: hidden !important;
-        box-shadow: 0 0 25px rgba(0, 195, 255, 0.12), inset 0 0 25px rgba(0, 0, 0, 0.95) !important;
+        border: 1px solid rgba(0, 195, 255, 0.28) !important;
+        box-shadow: 0 0 30px rgba(0, 195, 255, 0.12), 0 8px 32px rgba(0, 0, 0, 0.85) !important;
+        background: #000000 !important;
     }
 
-    [data-testid="stImage"] img {
+    .viewport-canvas {
         width: 100% !important;
-        height: auto !important;
-        max-height: calc(100vh - 175px) !important;
-        aspect-ratio: 600 / 424 !important;
-        object-fit: contain !important;
+        height: 100% !important;
         display: block !important;
+        object-fit: cover !important;
     }
 
     /* Floating Telemetry Glass Card (Top-Left of Viewport) */
     .telem-glass-card {
-        position: absolute;
-        top: 12px;
-        left: 12px;
-        z-index: 10;
-        width: 195px;
-        background: rgba(8, 14, 26, 0.75);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border: 1px solid rgba(0, 195, 255, 0.25);
-        border-radius: 8px;
-        padding: 8px 12px;
-        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
-        pointer-events: none;
-        font-family: 'Consolas', monospace;
+        position: absolute !important;
+        top: 14px !important;
+        left: 14px !important;
+        z-index: 10 !important;
+        width: 190px !important;
+        background: rgba(8, 14, 26, 0.72) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(0, 195, 255, 0.22) !important;
+        border-radius: 8px !important;
+        padding: 8px 12px !important;
+        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.55) !important;
+        pointer-events: none !important;
+        font-family: 'Consolas', monospace !important;
     }
     .telem-row {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        font-size: 0.68rem;
-        padding: 2px 0;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        font-size: 0.68rem !important;
+        padding: 1.5px 0 !important;
     }
     .telem-k {
-        color: #94a3b8;
+        color: #94a3b8 !important;
     }
     .telem-v {
-        font-weight: 700;
-        color: #00ff88;
+        font-weight: 700 !important;
+        color: #00ff88 !important;
     }
     .telem-alert {
         color: #ff4455 !important;
     }
 
-    /* Bottom HUD Bar (Row of 6 Glass Cards) */
-    .bottom-hud {
-        display: grid;
-        grid-template-columns: repeat(6, 1fr);
-        gap: 6px;
-        margin-top: 6px;
-        font-family: 'Consolas', monospace;
+    /* Floating Bottom Performance HUD Dock (Bottom of Viewport) */
+    .bottom-hud-dock {
+        position: absolute !important;
+        bottom: 12px !important;
+        left: 14px !important;
+        right: 14px !important;
+        z-index: 10 !important;
+        display: grid !important;
+        grid-template-columns: repeat(6, 1fr) !important;
+        gap: 8px !important;
+        pointer-events: none !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
     }
-    .hud-card {
-        background: rgba(15, 23, 42, 0.75);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        border: 1px solid rgba(0, 195, 255, 0.2);
-        border-radius: 6px;
-        padding: 5px 8px;
-        display: flex;
-        align-items: center;
-        gap: 6px;
+    .hud-pill {
+        background: rgba(10, 16, 28, 0.78) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border: 1px solid rgba(0, 195, 255, 0.22) !important;
+        border-radius: 8px !important;
+        padding: 6px 10px !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.5) !important;
     }
     .hud-icon {
-        font-size: 1.05rem;
+        font-size: 1.15rem !important;
     }
-    .hud-content {
-        display: flex;
-        flex-direction: column;
+    .hud-text {
+        display: flex !important;
+        flex-direction: column !important;
     }
     .hud-lbl {
-        font-size: 0.58rem;
-        color: #64748b;
-        text-transform: uppercase;
-        letter-spacing: 0.6px;
-        white-space: nowrap;
+        font-size: 0.58rem !important;
+        color: #94a3b8 !important;
+        text-transform: uppercase !important;
+        letter-spacing: 0.6px !important;
+        white-space: nowrap !important;
     }
     .hud-val {
-        font-size: 0.95rem;
-        font-weight: 800;
-        color: #f1f5f9;
-        line-height: 1.1;
-        margin-top: 1px;
+        font-size: 0.95rem !important;
+        font-weight: 800 !important;
+        color: #f1f5f9 !important;
+        line-height: 1.1 !important;
+        font-family: 'Consolas', monospace !important;
     }
 
     /* Right-Side Training Log Panel */
     .log-panel-card {
-        height: calc(100vh - 82px) !important;
-        background: rgba(15, 23, 42, 0.78);
-        backdrop-filter: blur(14px);
-        -webkit-backdrop-filter: blur(14px);
-        border: 1px solid rgba(0, 195, 255, 0.22);
-        border-radius: 8px;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.55);
-        padding: 0.6rem 0.8rem;
-        display: flex;
-        flex-direction: column;
+        height: calc(100vh - 78px) !important;
+        background: rgba(12, 20, 36, 0.78) !important;
+        backdrop-filter: blur(14px) !important;
+        -webkit-backdrop-filter: blur(14px) !important;
+        border: 1px solid rgba(0, 195, 255, 0.22) !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.55) !important;
+        padding: 0.65rem 0.85rem !important;
+        display: flex !important;
+        flex-direction: column !important;
     }
     .log-panel-header {
-        font-family: 'Consolas', monospace;
-        font-size: 0.74rem;
-        font-weight: 800;
-        letter-spacing: 1.2px;
-        color: #00d2ff;
-        text-transform: uppercase;
-        border-bottom: 1px solid rgba(0, 195, 255, 0.2);
-        padding-bottom: 0.35rem;
-        margin-bottom: 0.45rem;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        font-size: 0.82rem !important;
+        font-weight: 800 !important;
+        color: #f1f5f9 !important;
+        border-bottom: 1px solid rgba(0, 195, 255, 0.2) !important;
+        padding-bottom: 0.4rem !important;
+        margin-bottom: 0.5rem !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
     }
     .training-badge {
-        background: rgba(0, 255, 136, 0.15);
-        border: 1px solid #00ff88;
-        color: #00ff88;
-        padding: 1px 6px;
-        border-radius: 10px;
-        font-size: 0.6rem;
-        font-weight: 700;
+        background: rgba(0, 255, 136, 0.15) !important;
+        border: 1px solid #00ff88 !important;
+        color: #00ff88 !important;
+        padding: 1px 7px !important;
+        border-radius: 12px !important;
+        font-size: 0.62rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.5px !important;
     }
     .feed-container {
-        flex: 1;
-        overflow-y: auto;
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        padding-right: 4px;
-        scrollbar-width: thin;
-        scrollbar-color: rgba(0, 195, 255, 0.35) transparent;
+        flex: 1 !important;
+        overflow-y: auto !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 6px !important;
+        padding-right: 4px !important;
+        scrollbar-width: thin !important;
+        scrollbar-color: rgba(0, 195, 255, 0.35) transparent !important;
     }
     .feed-container::-webkit-scrollbar { width: 4px; }
     .feed-container::-webkit-scrollbar-thumb {
@@ -283,84 +294,52 @@ st.markdown(
 
     /* Feed item (Action / Kill-feed style) */
     .feed-item {
-        background: rgba(10, 16, 28, 0.88);
-        border-left: 3px solid #00b4d8;
-        border-radius: 5px;
-        padding: 0.35rem 0.55rem;
-        font-family: 'Consolas', monospace;
-        display: flex;
-        flex-direction: column;
-        gap: 2px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-        transition: transform 0.12s ease;
+        background: rgba(10, 16, 28, 0.85) !important;
+        border-left: 3px solid #00b4d8 !important;
+        border-radius: 5px !important;
+        padding: 0.4rem 0.6rem !important;
+        font-family: 'Consolas', monospace !important;
+        display: flex !important;
+        flex-direction: column !important;
+        gap: 2px !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.35) !important;
+        transition: transform 0.12s ease !important;
     }
     .feed-item:hover {
-        transform: translateX(2px);
+        transform: translateX(2px) !important;
     }
     .feed-title-line {
-        font-size: 0.71rem;
-        font-weight: 700;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
+        font-size: 0.72rem !important;
+        font-weight: 700 !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
     }
     .feed-ep-label {
-        color: #94a3b8;
+        color: #94a3b8 !important;
     }
     .feed-tag {
-        font-weight: 800;
-        font-size: 0.67rem;
-        letter-spacing: 0.5px;
+        font-weight: 800 !important;
+        font-size: 0.68rem !important;
+        letter-spacing: 0.5px !important;
     }
     .feed-details-line {
-        font-size: 0.65rem;
-        color: #cbd5e1;
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        border-top: 1px solid rgba(255, 255, 255, 0.05);
-        padding-top: 2px;
-        margin-top: 1px;
+        font-size: 0.66rem !important;
+        color: #cbd5e1 !important;
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: center !important;
+        border-top: 1px solid rgba(255, 255, 255, 0.05) !important;
+        padding-top: 2px !important;
+        margin-top: 1px !important;
     }
     .feed-empty {
-        color: #64748b;
-        font-size: 0.7rem;
-        text-align: center;
-        padding: 3rem 1rem;
-        font-family: 'Consolas', monospace;
-        line-height: 1.5;
-    }
-
-    /* Top Bar Form & Button Styling */
-    div[data-testid="stButton"] button {
-        border-radius: 6px !important;
-        font-family: 'Consolas', monospace !important;
-        font-weight: 700 !important;
-        letter-spacing: 0.8px !important;
-        padding: 0.3rem 0.6rem !important;
-        transition: all 0.2s ease !important;
-    }
-
-    /* Green Run Button */
-    button[kind="primary"] {
-        background: #00c853 !important;
-        border: 1px solid #00e676 !important;
-        color: #ffffff !important;
-        box-shadow: 0 0 12px rgba(0, 200, 83, 0.4) !important;
-    }
-    button[kind="primary"]:hover {
-        background: #00e676 !important;
-        box-shadow: 0 0 18px rgba(0, 230, 118, 0.6) !important;
-    }
-
-    button[kind="secondary"] {
-        background: rgba(30, 41, 59, 0.85) !important;
-        border: 1px solid rgba(0, 195, 255, 0.25) !important;
-        color: #e2e8f0 !important;
-    }
-    button[kind="secondary"]:hover {
-        border-color: #00d2ff !important;
-        box-shadow: 0 0 10px rgba(0, 210, 255, 0.3) !important;
+        color: #64748b !important;
+        font-size: 0.72rem !important;
+        text-align: center !important;
+        padding: 4rem 1rem !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important;
+        line-height: 1.5 !important;
     }
     </style>
     """,
@@ -412,32 +391,30 @@ ctrl: SimulationController = st.session_state.controller
 
 # ── TOP CONTROL BAR ──────────────────────────────────────────────────────────
 # Compact top control bar matching reference mockup:
-# Title | Gravity slider | Mode | Model Checkpoint | Run | Pause | Reset | Status
-top_c_title, top_c_grav, top_c_mode, top_c_model, top_c_btns, top_c_status = st.columns(
-    [2.0, 2.5, 1.8, 2.2, 2.4, 1.4], gap="small"
+# Title | Gravity slider | Mode | Model Checkpoint | Run | Pause | Reset
+top_c_title, top_c_grav, top_c_mode, top_c_model, top_c_btns = st.columns(
+    [2.0, 2.7, 2.0, 2.4, 2.3], gap="small"
 )
 
 with top_c_title:
     st.markdown(
         """
-        <div style="margin-top: 4px;">
-            <div class="brand-title">🚀 LunarLander RL</div>
-        </div>
+        <div class="brand-title">🚀 LunarLander RL</div>
         """,
         unsafe_allow_html=True,
     )
 
 with top_c_grav:
-    # Gravity slider: configurable range [0.5, 11.9], step 0.1, default 10.0
+    # Gravity slider: range [0.5, 11.9], step 0.1, default 10.0 (displayed as -10.0 m/s²)
     current_g = ctrl.selected_gravity
     selected_g = st.slider(
-        label=f"Gravity: {current_g:.1f} m/s²",
+        label=f"Gravity: -{current_g:.1f} m/s²",
         min_value=float(MIN_GRAVITY),
         max_value=float(MAX_GRAVITY),
         value=float(current_g),
         step=0.1,
         key="gravity_slider",
-        help="Physical Box2D downward gravity [0.5, 11.9 m/s²]. Applied live to environment.",
+        help="Physical Box2D downward gravity [0.5 to 11.9 m/s²]. Applied live to environment.",
     )
     if abs(selected_g - current_g) >= 0.05:
         ctrl.set_gravity(selected_g)
@@ -446,10 +423,9 @@ with top_c_grav:
 with top_c_mode:
     st.selectbox(
         "Mode",
-        ["Inference (Trained Model)", "Deterministic Policy"],
+        ["Inference (Trained Model)"],
         index=0,
         disabled=True,
-        help="Currently executing trained PPO neural policy.",
     )
 
 with top_c_model:
@@ -458,7 +434,6 @@ with top_c_model:
         ["ppo_shaped_s0/best_model.zip"],
         index=0,
         disabled=True,
-        help="Selected model weights for inference.",
     )
 
 with top_c_btns:
@@ -478,41 +453,7 @@ with top_c_btns:
         ):
             ctrl.reset(apply_new_gravity=True)
 
-with top_c_status:
-    st.write("")  # vertical alignment
-    status = ctrl.status
-    if status == "RUNNING":
-        badge_cls = "status-running"
-        dot_color = "#00ff88"
-    elif status == "PAUSED":
-        badge_cls = "status-paused"
-        dot_color = "#ffaa00"
-    elif status == "LANDED":
-        badge_cls = "status-landed"
-        dot_color = "#00ff88"
-    elif status == "CRASHED":
-        badge_cls = "status-crashed"
-        dot_color = "#ff4455"
-    elif status == "TIMEOUT":
-        badge_cls = "status-timeout"
-        dot_color = "#ffaa00"
-    else:
-        badge_cls = "status-ready"
-        dot_color = "#00b4d8"
-
-    st.markdown(
-        f"""
-        <div style="margin-top: 8px;">
-            <span class="status-badge {badge_cls}">
-                <span class="pulse-dot" style="background:{dot_color};"></span>
-                {html.escape(status)}
-            </span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height: 4px;'></div>", unsafe_allow_html=True)
 
 
 # ── LOG FEED HTML GENERATOR (Strictly unindented for CommonMark safety) ───────
@@ -522,11 +463,11 @@ def generate_log_feed_html(records: list[EpisodeRecord], current_ep: int) -> str
         '<div class="log-panel-card">',
         '<div class="log-panel-header">',
         '<div style="display:flex;align-items:center;gap:6px;">',
-        '<span style="font-size:0.95rem;">📊</span>',
+        '<span style="font-size:1rem;">📊</span>',
         '<span>Training Log</span>',
         '</div>',
         '<div style="display:flex;align-items:center;gap:6px;">',
-        f'<span style="font-size:0.65rem;color:#94a3b8;">Episode {current_ep}</span>',
+        f'<span style="font-size:0.68rem;color:#94a3b8;">Episode {current_ep}</span>',
         '<span class="training-badge">TRAINING</span>',
         '</div>',
         '</div>',
@@ -557,7 +498,7 @@ def generate_log_feed_html(records: list[EpisodeRecord], current_ep: int) -> str
                 f'<span style="color:{style["color"]};margin-right:4px;">●</span>'
             )
             lines.append(
-                f'<span style="color:#64748b;font-size:0.62rem;margin-right:4px;">{esc_time}</span>'
+                f'<span style="color:#64748b;font-size:0.64rem;margin-right:4px;">{esc_time}</span>'
             )
             lines.append(f'<span class="feed-ep-label">Episode {r.episode_id}:</span>')
             lines.append('</div>')
@@ -584,7 +525,7 @@ def generate_log_feed_html(records: list[EpisodeRecord], current_ep: int) -> str
 col_viewport, col_feed = st.columns([76, 24], gap="small")
 
 
-# ── FRAGMENT: Live Simulation & HUD Update ───────────────────────────────────
+# ── FRAGMENT: Live Simulation & Full Bleed Overlays ──────────────────────────
 # Fluid ~25 FPS loop updating frame, telemetry overlay, HUD, and feed
 @st.fragment(run_every="40ms")
 def render_live_simulation() -> None:
@@ -596,15 +537,17 @@ def render_live_simulation() -> None:
     telemetry = ctrl.adapter.get_telemetry()
     summary = ctrl.adapter.get_episode_summary()
 
-    # Left Viewport & Telemetry
+    # Left Viewport & Unified Glass Overlays
     with col_viewport:
-        # 1. Main Game Viewport (Real PyGame / Box2D frame with top padding)
         if frame is not None:
-            st.image(frame, use_container_width=True)
+            # Convert frame to Base64 JPEG for ultra-crisp responsive rendering
+            buf = io.BytesIO()
+            Image.fromarray(frame).save(buf, format="JPEG", quality=85)
+            b64_frame = base64.b64encode(buf.getvalue()).decode("ascii")
         else:
-            st.info("Simulation standing by. Click '▶ Run' to start.")
+            b64_frame = ""
 
-        # 2. Floating Telemetry Glass Card (Overlays on Top-Left of Viewport)
+        # Telemetry & HUD State
         vy_cls = "telem-alert" if telemetry["vy"] < -0.8 else "telem-v"
         ang_cls = "telem-alert" if telemetry["angle_warning"] else "telem-v"
         leg_l_str = "Yes" if telemetry["left_leg"] else "No"
@@ -612,8 +555,17 @@ def render_live_simulation() -> None:
         leg_l_cls = "telem-v" if telemetry["left_leg"] else "telem-k"
         leg_r_cls = "telem-v" if telemetry["right_leg"] else "telem-k"
 
-        st.markdown(
-            f"""
+        raw_rew = summary["raw_reward"]
+        recent_sr = ctrl.log_manager.recent_success_rate(window=50)
+        fuel_used = summary["fuel_used"]
+        fuel_used_pct = min(100.0, fuel_used)
+
+        # Single self-contained HTML component: Canvas + Floating Top-Left Telemetry + Floating Bottom HUD
+        viewport_html = f"""
+        <div class="viewport-card">
+            <img src="data:image/jpeg;base64,{b64_frame}" class="viewport-canvas" />
+
+            <!-- Floating Telemetry Glass Card (TOP-LEFT) -->
             <div class="telem-glass-card">
                 <div class="telem-row"><span class="telem-k">X Position</span><span class="telem-v">{telemetry['x_pos']:+.2f}</span></div>
                 <div class="telem-row"><span class="telem-k">Y Position</span><span class="telem-v">{telemetry['y_pos']:.2f}</span></div>
@@ -625,67 +577,55 @@ def render_live_simulation() -> None:
                 <div class="telem-row"><span class="telem-k">Right Leg Contact</span><span class="{leg_r_cls}">{leg_r_str}</span></div>
                 <div class="telem-row"><span class="telem-k">Fuel Remaining</span><span class="telem-v">{telemetry['fuel_remaining']:.1f}%</span></div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
 
-        # 3. Bottom Performance HUD Bar (6 Glass Cards)
-        raw_rew = summary["raw_reward"]
-        recent_sr = ctrl.log_manager.recent_success_rate(window=20)
-        fuel_used = summary["fuel_used"]
-        fuel_used_pct = min(100.0, fuel_used)
-
-        st.markdown(
-            f"""
-            <div class="bottom-hud">
-                <div class="hud-card">
+            <!-- Floating Bottom Performance HUD Dock (BOTTOM) -->
+            <div class="bottom-hud-dock">
+                <div class="hud-pill">
                     <span class="hud-icon">🏆</span>
-                    <div class="hud-content">
+                    <div class="hud-text">
                         <span class="hud-lbl">Episode</span>
                         <span class="hud-val">#{ctrl.current_episode}</span>
                     </div>
                 </div>
-                <div class="hud-card">
+                <div class="hud-pill">
                     <span class="hud-icon">🎯</span>
-                    <div class="hud-content">
+                    <div class="hud-text">
                         <span class="hud-lbl">Total Reward</span>
-                        <span class="hud-val" style="color: {'#00ff88' if raw_rew >= 0 else '#ff5555'};">
-                            {raw_rew:+.1f}
-                        </span>
+                        <span class="hud-val" style="color: {'#00ff88' if raw_rew >= 0 else '#ff5555'};">{raw_rew:+.1f}</span>
                     </div>
                 </div>
-                <div class="hud-card">
+                <div class="hud-pill">
                     <span class="hud-icon">⁝⁝</span>
-                    <div class="hud-content">
+                    <div class="hud-text">
                         <span class="hud-lbl">Steps</span>
                         <span class="hud-val">{summary['steps']:,}</span>
                     </div>
                 </div>
-                <div class="hud-card">
+                <div class="hud-pill">
                     <span class="hud-icon">⛽</span>
-                    <div class="hud-content">
+                    <div class="hud-text">
                         <span class="hud-lbl">Fuel Used</span>
                         <span class="hud-val" style="color: #00d2ff;">{fuel_used_pct:.1f}%</span>
                     </div>
                 </div>
-                <div class="hud-card">
+                <div class="hud-pill">
                     <span class="hud-icon">⏱</span>
-                    <div class="hud-content">
+                    <div class="hud-text">
                         <span class="hud-lbl">Episode Time</span>
                         <span class="hud-val">{summary['duration_seconds']:.1f}s</span>
                     </div>
                 </div>
-                <div class="hud-card">
+                <div class="hud-pill">
                     <span class="hud-icon">📈</span>
-                    <div class="hud-content">
-                        <span class="hud-lbl">Success (20ep)</span>
-                        <span class="hud-val" style="color: #00ff88;">{recent_sr:.0f}%</span>
+                    <div class="hud-text">
+                        <span class="hud-lbl">Recent Success Rate</span>
+                        <span class="hud-val" style="color: #00ff88;">{recent_sr:.0f}% (last 50)</span>
                     </div>
                 </div>
             </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        </div>
+        """
+        st.markdown(viewport_html, unsafe_allow_html=True)
 
     # Right-Side Training Log Panel
     with col_feed:

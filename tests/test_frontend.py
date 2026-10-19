@@ -217,16 +217,21 @@ def test_render_frame_smoke():
     adapter = SimulationEnvironmentAdapter()
     try:
         adapter.reset(seed=42)
-        frame_padded = adapter.render_frame(pad_top=24)
-        assert frame_padded is not None
-        assert isinstance(frame_padded, np.ndarray)
-        assert frame_padded.shape == (424, 600, 3)
-        assert frame_padded.dtype == np.uint8
-        assert frame_padded.max() > 0
-        assert frame_padded.std() > 10.0
+        # 1. SciFi High-Resolution Widescreen Frame (16:9)
+        frame_scifi = adapter.render_frame(scifi=True)
+        assert frame_scifi is not None
+        assert isinstance(frame_scifi, np.ndarray)
+        assert frame_scifi.shape == (576, 1024, 3)
+        assert frame_scifi.dtype == np.uint8
+        assert frame_scifi.max() > 0
+        assert frame_scifi.std() > 10.0
 
-        # Raw Gym frame without padding
-        frame_raw = adapter.render_frame(pad_top=0)
+        # 2. Padded Gym Frame
+        frame_padded = adapter.render_frame(scifi=False, pad_top=24)
+        assert frame_padded.shape == (424, 600, 3)
+
+        # 3. Raw Gym Frame
+        frame_raw = adapter.render_frame(scifi=False, pad_top=0)
         assert frame_raw.shape == (400, 600, 3)
     finally:
         adapter.close()

@@ -12,6 +12,7 @@ import numpy as np
 from rocketrl.envs.shaped_lander import ShapedLander
 from rocketrl.frontend.config import SimulationConfig
 from rocketrl.frontend.metrics import OutcomeType, classify_outcome
+from rocketrl.frontend.renderer import SciFiLunarRenderer
 
 
 class SimulationEnvironmentAdapter:
@@ -39,9 +40,11 @@ class SimulationEnvironmentAdapter:
         self._step_count: int = 0
         self._elapsed_time: float = 0.0
         self._last_step_time: float | None = None
+        self._last_action: int | None = None
         self._is_terminated: bool = False
         self._is_truncated: bool = False
 
+        self.renderer: SciFiLunarRenderer = SciFiLunarRenderer()
         self._build_env()
 
     def _build_env(self) -> None:
@@ -92,6 +95,7 @@ class SimulationEnvironmentAdapter:
         self._step_count = 0
         self._elapsed_time = 0.0
         self._last_step_time = None
+        self._last_action = None
         self._is_terminated = False
         self._is_truncated = False
 
@@ -113,6 +117,7 @@ class SimulationEnvironmentAdapter:
             else:
                 action = self.env.action_space.sample()
 
+        self._last_action = int(action) if np.asarray(action).ndim == 0 else 0
         obs, shaped_reward, terminated, truncated, info = self.env.step(action)
         self._current_obs = np.asarray(obs, dtype=np.float32)
         self._current_info = dict(info)
@@ -136,14 +141,18 @@ class SimulationEnvironmentAdapter:
 
         return self._current_obs, float(shaped_reward), self._is_terminated, self._is_truncated, self._current_info
 
-    def render_frame(self, pad_top: int = 24) -> np.ndarray | None:
-        """Capture RGB frame from the environment's PyGame renderer.
+    def render_frame(self, scifi: bool = True, pad_top: int = 24) -> np.ndarray | None:
+        """Capture RGB frame from the environment.
 
-        Optionally pads top with `pad_top` black sky pixel rows to prevent the lander's top
-        from being clipped by Box2D's initial spawn boundary.
+        If `scifi=True` (default), renders onto high-res 16:9 widescreen canvas
+        with stars, glowing Earth, lunar terrain, and Apollo Lunar Module.
+        If `scifi=False`, returns standard Gym frame (with optional pad_top).
         """
         if self.env is None:
             return None
+        if scifi:
+            return self.renderer.render(self.env, self._last_action)
+
         frame = self.env.render()
         if frame is None:
             return None
