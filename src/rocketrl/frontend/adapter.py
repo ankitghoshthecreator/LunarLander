@@ -37,7 +37,8 @@ class SimulationEnvironmentAdapter:
         self._raw_reward_acc: float = 0.0
         self._shaped_reward_acc: float = 0.0
         self._step_count: int = 0
-        self._episode_start_time: float = time.time()
+        self._elapsed_time: float = 0.0
+        self._last_step_time: float | None = None
         self._is_terminated: bool = False
         self._is_truncated: bool = False
 
@@ -89,7 +90,8 @@ class SimulationEnvironmentAdapter:
         self._raw_reward_acc = 0.0
         self._shaped_reward_acc = 0.0
         self._step_count = 0
-        self._episode_start_time = time.time()
+        self._elapsed_time = 0.0
+        self._last_step_time = None
         self._is_terminated = False
         self._is_truncated = False
 
@@ -123,13 +125,36 @@ class SimulationEnvironmentAdapter:
         self._shaped_reward_acc += float(shaped_reward)
         self._step_count += 1
 
+        # Track active simulation duration
+        now = time.time()
+        if self._last_step_time is not None:
+            dt = min(0.1, now - self._last_step_time)
+            self._elapsed_time += dt
+        else:
+            self._elapsed_time += 1.0 / 50.0  # standard 50 FPS step
+        self._last_step_time = now
+
         return self._current_obs, float(shaped_reward), self._is_terminated, self._is_truncated, self._current_info
 
-    def render_frame(self) -> np.ndarray | None:
-        """Capture RGB frame from the environment's PyGame renderer."""
+    def render_frame(self, pad_top: int = 24) -> np.ndarray | None:
+        """Capture RGB frame from the environment's PyGame renderer.
+
+        Optionally pads top with `pad_top` black sky pixel rows to prevent the lander's top
+        from being clipped by Box2D's initial spawn boundary.
+        """
         if self.env is None:
             return None
-        return self.env.render()
+        frame = self.env.render()
+        if frame is None:
+            return None
+        if pad_top > 0:
+            frame = np.pad(
+                frame,
+                ((pad_top, 0), (0, 0), (0, 0)),
+                mode="constant",
+                constant_values=0,
+            )
+        return frame
 
     def get_telemetry(self) -> dict[str, Any]:
         """Extract structured, physical telemetry from current observation and info."""
@@ -145,6 +170,7 @@ class SimulationEnvironmentAdapter:
                 "left_leg": False,
                 "right_leg": False,
                 "fuel_used": 0.0,
+                "fuel_remaining": 100.0,
                 "angle_warning": False,
                 "speed_warning": False,
             }
@@ -160,6 +186,8 @@ class SimulationEnvironmentAdapter:
         right_leg = bool(o[7] > 0.5)
         speed = float(np.hypot(vx, vy))
         fuel_used = float(self._current_info.get("fuel_used", 0.0))
+        fuel_pct = min(100.0, fuel_used)
+        fuel_remaining = max(0.0, 100.0 - fuel_pct)
 
         # Warnings for excessive tilt or descent rate
         angle_warning = abs(angle) > 0.35  # ~20 degrees
@@ -176,6 +204,7 @@ class SimulationEnvironmentAdapter:
             "left_leg": left_leg,
             "right_leg": right_leg,
             "fuel_used": fuel_used,
+            "fuel_remaining": fuel_remaining,
             "angle_warning": angle_warning,
             "speed_warning": speed_warning,
         }
@@ -191,12 +220,11 @@ class SimulationEnvironmentAdapter:
                 self._current_obs if self._current_obs is not None else np.zeros(8),
             )
 
-        duration = max(0.01, time.time() - self._episode_start_time)
         return {
             "raw_reward": self._raw_reward_acc,
             "shaped_reward": self._shaped_reward_acc,
             "steps": self._step_count,
-            "duration_seconds": duration,
+            "duration_seconds": self._elapsed_time,
             "outcome": outcome,
             "is_done": self._is_terminated or self._is_truncated,
             "fuel_used": float(self._current_info.get("fuel_used", 0.0)),

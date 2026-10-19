@@ -3,10 +3,10 @@ LunarLander RL — Full-Screen Dark Sci-Fi Dashboard
 ===================================================
 A real-time reinforcement learning simulation showcase with:
 - Main Game Viewport (76% width) featuring live PyGame Box2D frame rendering
-- Live Telemetry HUD Strip (X/Y position, velocities, speed, tilt angle, leg contacts, gravity)
-- Top Control Bar (Gravity slider [0.5 - 11.9 m/s²], Run/Pause/Reset, live status badge)
-- Right-Side Training Log (PUBG / Among Us style scrollable feed with color-coded outcomes)
-- Bottom Performance HUD (Episode, Total Reward, Steps, Duration, 20-Ep Success Rate, Fuel)
+- Floating Telemetry Glass Card (X/Y position, velocities, angle, leg contacts, fuel)
+- Top Control Bar (Gravity slider, Mode, Model Checkpoint, Run/Pause/Reset, live status badge)
+- Right-Side Training Log (Glassmorphism scrollable action feed with color-coded outcomes)
+- Bottom Performance HUD (Episode, Total Reward, Steps, Fuel Used, Episode Time, Success Rate)
 
 Launch with:
     .\.venv\Scripts\python.exe -m streamlit run app/dashboard.py
@@ -62,58 +62,50 @@ st.markdown(
     .block-container {
         padding-top: 0.4rem !important;
         padding-bottom: 0.4rem !important;
-        padding-left: 1rem !important;
-        padding-right: 1rem !important;
+        padding-left: 0.8rem !important;
+        padding-right: 0.8rem !important;
         max-width: 100% !important;
     }
     #MainMenu, footer { visibility: hidden !important; }
 
     /* Top Control Bar */
-    .top-bar-card {
+    .top-bar-container {
         background: rgba(15, 23, 42, 0.75);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
         border: 1px solid rgba(0, 195, 255, 0.22);
         box-shadow: 0 4px 18px rgba(0, 0, 0, 0.55), inset 0 0 15px rgba(0, 195, 255, 0.04);
         border-radius: 8px;
-        padding: 0.5rem 1rem;
-        margin-bottom: 0.5rem;
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
+        padding: 0.4rem 0.8rem;
+        margin-bottom: 0.45rem;
     }
 
     .brand-title {
         font-family: 'Consolas', 'Courier New', monospace;
-        font-size: 1.25rem;
+        font-size: 1.22rem;
         font-weight: 800;
-        letter-spacing: 2px;
+        letter-spacing: 1.5px;
         color: #00d2ff;
         text-shadow: 0 0 12px rgba(0, 210, 255, 0.6);
         text-transform: uppercase;
         margin: 0;
-        line-height: 1.2;
-    }
-
-    .brand-subtitle {
-        font-size: 0.65rem;
-        color: #64748b;
-        letter-spacing: 1.2px;
-        text-transform: uppercase;
-        margin-top: 1px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        white-space: nowrap;
     }
 
     /* Status Badges */
     .status-badge {
         display: inline-flex;
         align-items: center;
-        gap: 6px;
-        padding: 0.25rem 0.7rem;
-        border-radius: 16px;
-        font-size: 0.72rem;
+        gap: 5px;
+        padding: 0.2rem 0.6rem;
+        border-radius: 14px;
+        font-size: 0.68rem;
         font-weight: 700;
         font-family: 'Consolas', monospace;
-        letter-spacing: 1.2px;
+        letter-spacing: 1px;
         text-transform: uppercase;
     }
     .status-ready   { background: rgba(0, 180, 216, 0.15); border: 1px solid #00b4d8; color: #00b4d8; }
@@ -124,8 +116,8 @@ st.markdown(
     .status-timeout { background: rgba(255, 170, 0, 0.25); border: 1px solid #ffaa00; color: #ffaa00; }
 
     .pulse-dot {
-        width: 7px;
-        height: 7px;
+        width: 6px;
+        height: 6px;
         border-radius: 50%;
         display: inline-block;
         animation: pulse-glow 1.5s infinite;
@@ -135,84 +127,111 @@ st.markdown(
         50% { opacity: 0.3; transform: scale(0.85); }
     }
 
-    /* Telemetry HUD Strip (Above Canvas) */
-    .telem-bar {
-        background: rgba(10, 16, 28, 0.88);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        border: 1px solid rgba(0, 195, 255, 0.25);
-        border-radius: 6px;
-        padding: 0.35rem 0.65rem;
-        margin-bottom: 0.4rem;
-        display: flex;
-        flex-wrap: nowrap;
-        justify-content: space-between;
-        align-items: center;
-        gap: 6px;
-        font-family: 'Consolas', monospace;
-        font-size: 0.7rem;
-        overflow-x: auto;
+    /* Simulation Viewport & Column Styling */
+    [data-testid="column"]:first-child {
+        position: relative !important;
     }
-    .telem-col {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        white-space: nowrap;
-    }
-    .telem-k { color: #64748b; font-size: 0.62rem; text-transform: uppercase; font-weight: 600; }
-    .telem-v { color: #f1f5f9; font-weight: 700; }
-    .telem-good { color: #00ff88; font-weight: 700; }
-    .telem-warn { color: #ffaa00; font-weight: 700; }
-    .telem-alert { color: #ff4455; font-weight: 700; }
-    .telem-sep { color: rgba(0, 195, 255, 0.25); margin: 0 2px; }
 
-    /* Simulation Viewport & Frame Styling */
     [data-testid="stImage"] {
+        width: 100% !important;
         display: flex !important;
         justify-content: center !important;
         align-items: center !important;
         background: #000000 !important;
-        border: 1px solid rgba(0, 195, 255, 0.32) !important;
+        border: 1px solid rgba(0, 195, 255, 0.3) !important;
         border-radius: 8px !important;
-        padding: 0 !important;
-        margin: 0 auto !important;
         overflow: hidden !important;
-        box-shadow: 0 0 24px rgba(0, 195, 255, 0.12), inset 0 0 25px rgba(0, 0, 0, 0.95) !important;
-    }
-    [data-testid="stImage"] img {
-        max-height: 53vh !important;
-        width: auto !important;
-        max-width: 100% !important;
-        aspect-ratio: 600 / 400 !important;
-        object-fit: contain !important;
-        display: block !important;
-        margin: 0 auto !important;
+        box-shadow: 0 0 25px rgba(0, 195, 255, 0.12), inset 0 0 25px rgba(0, 0, 0, 0.95) !important;
     }
 
-    /* Bottom HUD bar */
-    .bottom-hud {
-        background: rgba(15, 23, 42, 0.75);
+    [data-testid="stImage"] img {
+        width: 100% !important;
+        height: auto !important;
+        max-height: calc(100vh - 175px) !important;
+        aspect-ratio: 600 / 424 !important;
+        object-fit: contain !important;
+        display: block !important;
+    }
+
+    /* Floating Telemetry Glass Card (Top-Left of Viewport) */
+    .telem-glass-card {
+        position: absolute;
+        top: 12px;
+        left: 12px;
+        z-index: 10;
+        width: 195px;
+        background: rgba(8, 14, 26, 0.75);
         backdrop-filter: blur(12px);
-        border: 1px solid rgba(0, 195, 255, 0.2);
-        border-radius: 6px;
-        padding: 0.4rem 0.8rem;
-        margin-top: 0.4rem;
+        -webkit-backdrop-filter: blur(12px);
+        border: 1px solid rgba(0, 195, 255, 0.25);
+        border-radius: 8px;
+        padding: 8px 12px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.6);
+        pointer-events: none;
+        font-family: 'Consolas', monospace;
+    }
+    .telem-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.68rem;
+        padding: 2px 0;
+    }
+    .telem-k {
+        color: #94a3b8;
+    }
+    .telem-v {
+        font-weight: 700;
+        color: #00ff88;
+    }
+    .telem-alert {
+        color: #ff4455 !important;
+    }
+
+    /* Bottom HUD Bar (Row of 6 Glass Cards) */
+    .bottom-hud {
         display: grid;
         grid-template-columns: repeat(6, 1fr);
         gap: 6px;
-        text-align: center;
+        margin-top: 6px;
         font-family: 'Consolas', monospace;
     }
-    .hud-cell {
+    .hud-card {
+        background: rgba(15, 23, 42, 0.75);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 195, 255, 0.2);
+        border-radius: 6px;
+        padding: 5px 8px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .hud-icon {
+        font-size: 1.05rem;
+    }
+    .hud-content {
         display: flex;
         flex-direction: column;
-        justify-content: center;
     }
-    .hud-lbl { font-size: 0.6rem; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; }
-    .hud-val { font-size: 0.98rem; font-weight: 800; color: #f1f5f9; margin-top: 1px; }
+    .hud-lbl {
+        font-size: 0.58rem;
+        color: #64748b;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        white-space: nowrap;
+    }
+    .hud-val {
+        font-size: 0.95rem;
+        font-weight: 800;
+        color: #f1f5f9;
+        line-height: 1.1;
+        margin-top: 1px;
+    }
 
-    /* Right-Side Training Log Panel (PUBG / Among Us Style) */
+    /* Right-Side Training Log Panel */
     .log-panel-card {
+        height: calc(100vh - 82px) !important;
         background: rgba(15, 23, 42, 0.78);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
@@ -222,13 +241,12 @@ st.markdown(
         padding: 0.6rem 0.8rem;
         display: flex;
         flex-direction: column;
-        height: 100%;
     }
     .log-panel-header {
         font-family: 'Consolas', monospace;
         font-size: 0.74rem;
         font-weight: 800;
-        letter-spacing: 1.5px;
+        letter-spacing: 1.2px;
         color: #00d2ff;
         text-transform: uppercase;
         border-bottom: 1px solid rgba(0, 195, 255, 0.2);
@@ -238,8 +256,17 @@ st.markdown(
         justify-content: space-between;
         align-items: center;
     }
+    .training-badge {
+        background: rgba(0, 255, 136, 0.15);
+        border: 1px solid #00ff88;
+        color: #00ff88;
+        padding: 1px 6px;
+        border-radius: 10px;
+        font-size: 0.6rem;
+        font-weight: 700;
+    }
     .feed-container {
-        height: calc(53vh + 88px);
+        flex: 1;
         overflow-y: auto;
         display: flex;
         flex-direction: column;
@@ -254,12 +281,12 @@ st.markdown(
         border-radius: 3px;
     }
 
-    /* PUBG / Among Us Kill-feed style Item */
+    /* Feed item (Action / Kill-feed style) */
     .feed-item {
         background: rgba(10, 16, 28, 0.88);
         border-left: 3px solid #00b4d8;
         border-radius: 5px;
-        padding: 0.4rem 0.6rem;
+        padding: 0.35rem 0.55rem;
         font-family: 'Consolas', monospace;
         display: flex;
         flex-direction: column;
@@ -271,7 +298,7 @@ st.markdown(
         transform: translateX(2px);
     }
     .feed-title-line {
-        font-size: 0.73rem;
+        font-size: 0.71rem;
         font-weight: 700;
         display: flex;
         justify-content: space-between;
@@ -282,11 +309,11 @@ st.markdown(
     }
     .feed-tag {
         font-weight: 800;
-        font-size: 0.68rem;
-        letter-spacing: 0.6px;
+        font-size: 0.67rem;
+        letter-spacing: 0.5px;
     }
     .feed-details-line {
-        font-size: 0.67rem;
+        font-size: 0.65rem;
         color: #cbd5e1;
         display: flex;
         justify-content: space-between;
@@ -295,26 +322,45 @@ st.markdown(
         padding-top: 2px;
         margin-top: 1px;
     }
-    .feed-details-line b {
-        font-weight: 700;
-    }
     .feed-empty {
         color: #64748b;
-        font-size: 0.72rem;
+        font-size: 0.7rem;
         text-align: center;
         padding: 3rem 1rem;
         font-family: 'Consolas', monospace;
         line-height: 1.5;
     }
 
-    /* Streamlit Button Styling */
-    div.stButton > button {
+    /* Top Bar Form & Button Styling */
+    div[data-testid="stButton"] button {
         border-radius: 6px !important;
         font-family: 'Consolas', monospace !important;
         font-weight: 700 !important;
         letter-spacing: 0.8px !important;
-        padding: 0.35rem 0.6rem !important;
+        padding: 0.3rem 0.6rem !important;
         transition: all 0.2s ease !important;
+    }
+
+    /* Green Run Button */
+    button[kind="primary"] {
+        background: #00c853 !important;
+        border: 1px solid #00e676 !important;
+        color: #ffffff !important;
+        box-shadow: 0 0 12px rgba(0, 200, 83, 0.4) !important;
+    }
+    button[kind="primary"]:hover {
+        background: #00e676 !important;
+        box-shadow: 0 0 18px rgba(0, 230, 118, 0.6) !important;
+    }
+
+    button[kind="secondary"] {
+        background: rgba(30, 41, 59, 0.85) !important;
+        border: 1px solid rgba(0, 195, 255, 0.25) !important;
+        color: #e2e8f0 !important;
+    }
+    button[kind="secondary"]:hover {
+        border-color: #00d2ff !important;
+        box-shadow: 0 0 10px rgba(0, 210, 255, 0.3) !important;
     }
     </style>
     """,
@@ -365,108 +411,133 @@ init_session()
 ctrl: SimulationController = st.session_state.controller
 
 # ── TOP CONTROL BAR ──────────────────────────────────────────────────────────
-# Compact top control bar with title, gravity slider, status badge, and Run/Pause/Reset
-with st.container():
-    top_col_brand, top_col_grav, top_col_status, top_col_actions = st.columns(
-        [2.2, 3.5, 1.8, 2.5], gap="small"
+# Compact top control bar matching reference mockup:
+# Title | Gravity slider | Mode | Model Checkpoint | Run | Pause | Reset | Status
+top_c_title, top_c_grav, top_c_mode, top_c_model, top_c_btns, top_c_status = st.columns(
+    [2.0, 2.5, 1.8, 2.2, 2.4, 1.4], gap="small"
+)
+
+with top_c_title:
+    st.markdown(
+        """
+        <div style="margin-top: 4px;">
+            <div class="brand-title">🚀 LunarLander RL</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
 
-    with top_col_brand:
-        st.markdown(
-            """
-            <div>
-                <div class="brand-title">🚀 LUNARLANDER RL</div>
-                <div class="brand-subtitle">Box2D · Autonomous PPO Agent</div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+with top_c_grav:
+    # Gravity slider: configurable range [0.5, 11.9], step 0.1, default 10.0
+    current_g = ctrl.selected_gravity
+    selected_g = st.slider(
+        label=f"Gravity: {current_g:.1f} m/s²",
+        min_value=float(MIN_GRAVITY),
+        max_value=float(MAX_GRAVITY),
+        value=float(current_g),
+        step=0.1,
+        key="gravity_slider",
+        help="Physical Box2D downward gravity [0.5, 11.9 m/s²]. Applied live to environment.",
+    )
+    if abs(selected_g - current_g) >= 0.05:
+        ctrl.set_gravity(selected_g)
+        st.session_state.slider_gravity = selected_g
 
-    with top_col_grav:
-        # Gravity slider (0.5 to 11.9 m/s², default 10.0, step 0.1)
-        current_g = ctrl.selected_gravity
-        selected_g = st.slider(
-            label=f"Gravity: {current_g:.1f} m/s²",
-            min_value=float(MIN_GRAVITY),
-            max_value=float(MAX_GRAVITY),
-            value=float(current_g),
-            step=0.1,
-            key="gravity_slider",
-            help="Adjust physical downward gravity in Box2D simulator. Clamped to safe Box2D physics limits [0.5, 11.9].",
-        )
-        if abs(selected_g - current_g) >= 0.05:
-            ctrl.set_gravity(selected_g)
-            st.session_state.slider_gravity = selected_g
+with top_c_mode:
+    st.selectbox(
+        "Mode",
+        ["Inference (Trained Model)", "Deterministic Policy"],
+        index=0,
+        disabled=True,
+        help="Currently executing trained PPO neural policy.",
+    )
 
-    with top_col_status:
-        st.write("")  # vertical alignment
-        status = ctrl.status
-        if status == "RUNNING":
-            badge_cls = "status-running"
-            dot_color = "#00ff88"
-        elif status == "PAUSED":
-            badge_cls = "status-paused"
-            dot_color = "#ffaa00"
-        elif status == "LANDED":
-            badge_cls = "status-landed"
-            dot_color = "#00ff88"
-        elif status == "CRASHED":
-            badge_cls = "status-crashed"
-            dot_color = "#ff4455"
-        elif status == "TIMEOUT":
-            badge_cls = "status-timeout"
-            dot_color = "#ffaa00"
-        else:
-            badge_cls = "status-ready"
-            dot_color = "#00b4d8"
+with top_c_model:
+    st.selectbox(
+        "Model Checkpoint",
+        ["ppo_shaped_s0/best_model.zip"],
+        index=0,
+        disabled=True,
+        help="Selected model weights for inference.",
+    )
 
-        st.markdown(
-            f"""
-            <div style="margin-top: 10px;">
-                <span class="status-badge {badge_cls}">
-                    <span class="pulse-dot" style="background:{dot_color};"></span>
-                    {html.escape(status)}
-                </span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+with top_c_btns:
+    st.write("")  # vertical alignment
+    btn_c1, btn_c2, btn_c3 = st.columns(3)
+    with btn_c1:
+        if st.button("▶ Run", type="primary", use_container_width=True, key="btn_run"):
+            ctrl.run()
+    with btn_c2:
+        if st.button(
+            "⏸ Pause", type="secondary", use_container_width=True, key="btn_pause"
+        ):
+            ctrl.pause()
+    with btn_c3:
+        if st.button(
+            "🔄 Reset", type="secondary", use_container_width=True, key="btn_reset"
+        ):
+            ctrl.reset(apply_new_gravity=True)
 
-    with top_col_actions:
-        st.write("")  # vertical alignment
-        btn_c1, btn_c2, btn_c3 = st.columns(3)
-        with btn_c1:
-            if st.button("▶ Run", use_container_width=True, key="btn_run"):
-                ctrl.run()
-        with btn_c2:
-            if st.button("⏸ Pause", use_container_width=True, key="btn_pause"):
-                ctrl.pause()
-        with btn_c3:
-            if st.button("🔄 Reset", use_container_width=True, key="btn_reset"):
-                ctrl.reset(apply_new_gravity=True)
+with top_c_status:
+    st.write("")  # vertical alignment
+    status = ctrl.status
+    if status == "RUNNING":
+        badge_cls = "status-running"
+        dot_color = "#00ff88"
+    elif status == "PAUSED":
+        badge_cls = "status-paused"
+        dot_color = "#ffaa00"
+    elif status == "LANDED":
+        badge_cls = "status-landed"
+        dot_color = "#00ff88"
+    elif status == "CRASHED":
+        badge_cls = "status-crashed"
+        dot_color = "#ff4455"
+    elif status == "TIMEOUT":
+        badge_cls = "status-timeout"
+        dot_color = "#ffaa00"
+    else:
+        badge_cls = "status-ready"
+        dot_color = "#00b4d8"
+
+    st.markdown(
+        f"""
+        <div style="margin-top: 8px;">
+            <span class="status-badge {badge_cls}">
+                <span class="pulse-dot" style="background:{dot_color};"></span>
+                {html.escape(status)}
+            </span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 st.markdown("<div style='height: 2px;'></div>", unsafe_allow_html=True)
 
 
 # ── LOG FEED HTML GENERATOR (Strictly unindented for CommonMark safety) ───────
 def generate_log_feed_html(records: list[EpisodeRecord], current_ep: int) -> str:
-    """Generate self-contained, valid HTML string for the training log panel.
-
-    All lines have zero indentation to prevent CommonMark from treating HTML
-    as indented code blocks (<pre><code>).
-    """
+    """Generate self-contained, valid HTML string for the training log panel."""
     lines: list[str] = [
         '<div class="log-panel-card">',
         '<div class="log-panel-header">',
-        '<span>📋 TRAINING LOG</span>',
-        f'<span style="font-size:0.65rem;color:#00d2ff;">EP #{current_ep}</span>',
+        '<div style="display:flex;align-items:center;gap:6px;">',
+        '<span style="font-size:0.95rem;">📊</span>',
+        '<span>Training Log</span>',
+        '</div>',
+        '<div style="display:flex;align-items:center;gap:6px;">',
+        f'<span style="font-size:0.65rem;color:#94a3b8;">Episode {current_ep}</span>',
+        '<span class="training-badge">TRAINING</span>',
+        '</div>',
         '</div>',
         '<div class="feed-container">',
     ]
 
     if not records:
         lines.append('<div class="feed-empty">')
-        lines.append('Simulation standing by.<br>Click <b>▶ Run</b> to start rollouts.')
+        lines.append(
+            'Awaiting completed episode rollouts...<br>Click <b>▶ Run</b> to start.'
+        )
         lines.append('</div>')
     else:
         for r in records:
@@ -474,26 +545,33 @@ def generate_log_feed_html(records: list[EpisodeRecord], current_ep: int) -> str
             rew_str = f"{r.raw_reward:+.1f}"
             rew_color = "#00ff88" if r.raw_reward >= 0 else "#ff5555"
             esc_outcome = html.escape(r.outcome)
-            esc_icon = html.escape(style["icon"])
             esc_time = html.escape(r.timestamp)
 
             lines.append(
                 f'<div class="feed-item" style="border-left-color: {style["border"]};">'
             )
-            # Top line: Episode 73: LANDED (SUCCESS)
+            # Line 1: ● 12:14:23 Episode 73: LANDED (SUCCESS)
             lines.append('<div class="feed-title-line">')
-            lines.append(f'<span class="feed-ep-label">Episode {r.episode_id}:</span>')
+            lines.append('<div>')
             lines.append(
-                f'<span class="feed-tag" style="color: {style["color"]};">{esc_icon} {esc_outcome}</span>'
+                f'<span style="color:{style["color"]};margin-right:4px;">●</span>'
+            )
+            lines.append(
+                f'<span style="color:#64748b;font-size:0.62rem;margin-right:4px;">{esc_time}</span>'
+            )
+            lines.append(f'<span class="feed-ep-label">Episode {r.episode_id}:</span>')
+            lines.append('</div>')
+            lines.append(
+                f'<span class="feed-tag" style="color: {style["color"]};">{esc_outcome}</span>'
             )
             lines.append('</div>')
-            # Bottom line: Total Reward: +247.9 | Steps: 321
+            # Line 2: Total Reward: +247.9 | Steps: 321
             lines.append('<div class="feed-details-line">')
             lines.append(
                 f'<span>Total Reward: <b style="color: {rew_color};">{rew_str}</b></span>'
             )
+            lines.append('<span>|</span>')
             lines.append(f'<span>Steps: {r.steps:,}</span>')
-            lines.append(f'<span style="color:#64748b;">{esc_time}</span>')
             lines.append('</div>')
             lines.append('</div>')
 
@@ -503,15 +581,14 @@ def generate_log_feed_html(records: list[EpisodeRecord], current_ep: int) -> str
 
 
 # ── MAIN BODY: 76% VIEWPORT (LEFT) & 24% TRAINING LOG (RIGHT) ────────────────
-col_viewport, col_feed = st.columns([76, 24], gap="medium")
+col_viewport, col_feed = st.columns([76, 24], gap="small")
 
 
-# ── FRAGMENT: Live Simulation & Telemetry Update ─────────────────────────────
-# We use @st.fragment so frames update fluidly at ~25 FPS without rerunning
-# the whole script or slider, preventing UI input latency or flickering.
+# ── FRAGMENT: Live Simulation & HUD Update ───────────────────────────────────
+# Fluid ~25 FPS loop updating frame, telemetry overlay, HUD, and feed
 @st.fragment(run_every="40ms")
 def render_live_simulation() -> None:
-    # Advance simulation if currently in RUNNING state
+    # Advance simulation strictly when RUNNING
     if ctrl.status == "RUNNING":
         ctrl.step(num_steps=1)
 
@@ -521,85 +598,96 @@ def render_live_simulation() -> None:
 
     # Left Viewport & Telemetry
     with col_viewport:
-        # 1. Compact Cockpit Telemetry Bar
-        angle_deg = telemetry["angle"] * (180.0 / np.pi)
-        ang_cls = "telem-alert" if telemetry["angle_warning"] else "telem-good"
-        speed_cls = "telem-alert" if telemetry["speed_warning"] else "telem-good"
-        vy_cls = "telem-alert" if telemetry["vy"] < -0.8 else "telem-good"
-        leg_l_str = "DOWN" if telemetry["left_leg"] else "OFF"
-        leg_r_str = "DOWN" if telemetry["right_leg"] else "OFF"
-        leg_l_cls = "telem-good" if telemetry["left_leg"] else "telem-k"
-        leg_r_cls = "telem-good" if telemetry["right_leg"] else "telem-k"
-
-        st.markdown(
-            f"""
-            <div class="telem-bar">
-                <div class="telem-col"><span class="telem-k">X:</span><span class="telem-v">{telemetry['x_pos']:+.2f}</span></div>
-                <span class="telem-sep">|</span>
-                <div class="telem-col"><span class="telem-k">Y:</span><span class="telem-v">{telemetry['y_pos']:.2f}</span></div>
-                <span class="telem-sep">|</span>
-                <div class="telem-col"><span class="telem-k">Vx:</span><span class="telem-v">{telemetry['vx']:+.2f}</span></div>
-                <span class="telem-sep">|</span>
-                <div class="telem-col"><span class="telem-k">Vy:</span><span class="telem-v {vy_cls}">{telemetry['vy']:+.2f}</span></div>
-                <span class="telem-sep">|</span>
-                <div class="telem-col"><span class="telem-k">SPD:</span><span class="telem-v {speed_cls}">{telemetry['speed']:.2f}</span></div>
-                <span class="telem-sep">|</span>
-                <div class="telem-col"><span class="telem-k">TILT:</span><span class="telem-v {ang_cls}">{angle_deg:+.1f}°</span></div>
-                <span class="telem-sep">|</span>
-                <div class="telem-col"><span class="telem-k">ANG VEL:</span><span class="telem-v">{telemetry['angular_velocity']:+.2f}</span></div>
-                <span class="telem-sep">|</span>
-                <div class="telem-col"><span class="telem-k">LEGS:</span><span class="telem-v">L:<span class="{leg_l_cls}">{leg_l_str}</span> R:<span class="{leg_r_cls}">{leg_r_str}</span></span></div>
-                <span class="telem-sep">|</span>
-                <div class="telem-col"><span class="telem-k">G:</span><span class="telem-v" style="color:#00d2ff;">{ctrl.selected_gravity:.1f}</span></div>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-
-        # 2. Main Game Viewport (Real PyGame / Box2D frame)
+        # 1. Main Game Viewport (Real PyGame / Box2D frame with top padding)
         if frame is not None:
             st.image(frame, use_container_width=True)
         else:
             st.info("Simulation standing by. Click '▶ Run' to start.")
 
-        # 3. Bottom Performance HUD
+        # 2. Floating Telemetry Glass Card (Overlays on Top-Left of Viewport)
+        vy_cls = "telem-alert" if telemetry["vy"] < -0.8 else "telem-v"
+        ang_cls = "telem-alert" if telemetry["angle_warning"] else "telem-v"
+        leg_l_str = "Yes" if telemetry["left_leg"] else "No"
+        leg_r_str = "Yes" if telemetry["right_leg"] else "No"
+        leg_l_cls = "telem-v" if telemetry["left_leg"] else "telem-k"
+        leg_r_cls = "telem-v" if telemetry["right_leg"] else "telem-k"
+
+        st.markdown(
+            f"""
+            <div class="telem-glass-card">
+                <div class="telem-row"><span class="telem-k">X Position</span><span class="telem-v">{telemetry['x_pos']:+.2f}</span></div>
+                <div class="telem-row"><span class="telem-k">Y Position</span><span class="telem-v">{telemetry['y_pos']:.2f}</span></div>
+                <div class="telem-row"><span class="telem-k">X Velocity</span><span class="telem-v">{telemetry['vx']:+.2f}</span></div>
+                <div class="telem-row"><span class="telem-k">Y Velocity</span><span class="{vy_cls}">{telemetry['vy']:+.2f}</span></div>
+                <div class="telem-row"><span class="telem-k">Angle (rad)</span><span class="{ang_cls}">{telemetry['angle']:+.2f}</span></div>
+                <div class="telem-row"><span class="telem-k">Angular Vel.</span><span class="telem-v">{telemetry['angular_velocity']:+.2f}</span></div>
+                <div class="telem-row"><span class="telem-k">Left Leg Contact</span><span class="{leg_l_cls}">{leg_l_str}</span></div>
+                <div class="telem-row"><span class="telem-k">Right Leg Contact</span><span class="{leg_r_cls}">{leg_r_str}</span></div>
+                <div class="telem-row"><span class="telem-k">Fuel Remaining</span><span class="telem-v">{telemetry['fuel_remaining']:.1f}%</span></div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        # 3. Bottom Performance HUD Bar (6 Glass Cards)
         raw_rew = summary["raw_reward"]
         recent_sr = ctrl.log_manager.recent_success_rate(window=20)
+        fuel_used = summary["fuel_used"]
+        fuel_used_pct = min(100.0, fuel_used)
+
         st.markdown(
             f"""
             <div class="bottom-hud">
-                <div class="hud-cell">
-                    <span class="hud-lbl">Episode</span>
-                    <span class="hud-val">#{ctrl.current_episode}</span>
+                <div class="hud-card">
+                    <span class="hud-icon">🏆</span>
+                    <div class="hud-content">
+                        <span class="hud-lbl">Episode</span>
+                        <span class="hud-val">#{ctrl.current_episode}</span>
+                    </div>
                 </div>
-                <div class="hud-cell">
-                    <span class="hud-lbl">Reward (Raw)</span>
-                    <span class="hud-val" style="color: {'#00ff88' if raw_rew >= 0 else '#ff5555'};">
-                        {raw_rew:+.1f}
-                    </span>
+                <div class="hud-card">
+                    <span class="hud-icon">🎯</span>
+                    <div class="hud-content">
+                        <span class="hud-lbl">Total Reward</span>
+                        <span class="hud-val" style="color: {'#00ff88' if raw_rew >= 0 else '#ff5555'};">
+                            {raw_rew:+.1f}
+                        </span>
+                    </div>
                 </div>
-                <div class="hud-cell">
-                    <span class="hud-lbl">Steps</span>
-                    <span class="hud-val">{summary['steps']:,}</span>
+                <div class="hud-card">
+                    <span class="hud-icon">⁝⁝</span>
+                    <div class="hud-content">
+                        <span class="hud-lbl">Steps</span>
+                        <span class="hud-val">{summary['steps']:,}</span>
+                    </div>
                 </div>
-                <div class="hud-cell">
-                    <span class="hud-lbl">Duration</span>
-                    <span class="hud-val">{summary['duration_seconds']:.1f}s</span>
+                <div class="hud-card">
+                    <span class="hud-icon">⛽</span>
+                    <div class="hud-content">
+                        <span class="hud-lbl">Fuel Used</span>
+                        <span class="hud-val" style="color: #00d2ff;">{fuel_used_pct:.1f}%</span>
+                    </div>
                 </div>
-                <div class="hud-cell">
-                    <span class="hud-lbl">Success (20ep)</span>
-                    <span class="hud-val" style="color: #00d2ff;">{recent_sr:.0f}%</span>
+                <div class="hud-card">
+                    <span class="hud-icon">⏱</span>
+                    <div class="hud-content">
+                        <span class="hud-lbl">Episode Time</span>
+                        <span class="hud-val">{summary['duration_seconds']:.1f}s</span>
+                    </div>
                 </div>
-                <div class="hud-cell">
-                    <span class="hud-lbl">Fuel Used</span>
-                    <span class="hud-val" style="color: #cbd5e1;">{summary['fuel_used']:.0f}</span>
+                <div class="hud-card">
+                    <span class="hud-icon">📈</span>
+                    <div class="hud-content">
+                        <span class="hud-lbl">Success (20ep)</span>
+                        <span class="hud-val" style="color: #00ff88;">{recent_sr:.0f}%</span>
+                    </div>
                 </div>
             </div>
             """,
             unsafe_allow_html=True,
         )
 
-    # Right-Side Training Log Panel (PUBG / Among Us Style)
+    # Right-Side Training Log Panel
     with col_feed:
         records = ctrl.log_manager.recent_records
         feed_html = generate_log_feed_html(records, ctrl.current_episode)

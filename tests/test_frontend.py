@@ -213,18 +213,61 @@ def test_telemetry_extraction():
 
 
 def test_render_frame_smoke():
-    """Verify captured frame has expected shape (400, 600, 3), dtype uint8, and non-trivial content."""
+    """Verify captured frame has expected dimensions, dtype uint8, and non-trivial content."""
     adapter = SimulationEnvironmentAdapter()
     try:
         adapter.reset(seed=42)
-        frame = adapter.render_frame()
-        assert frame is not None
-        assert isinstance(frame, np.ndarray)
-        assert frame.shape == (400, 600, 3)
-        assert frame.dtype == np.uint8
-        # Ensure frame contains rendered pixels (terrain, flags, stars/lander)
-        assert frame.max() > 0
-        assert frame.std() > 10.0
+        frame_padded = adapter.render_frame(pad_top=24)
+        assert frame_padded is not None
+        assert isinstance(frame_padded, np.ndarray)
+        assert frame_padded.shape == (424, 600, 3)
+        assert frame_padded.dtype == np.uint8
+        assert frame_padded.max() > 0
+        assert frame_padded.std() > 10.0
+
+        # Raw Gym frame without padding
+        frame_raw = adapter.render_frame(pad_top=0)
+        assert frame_raw.shape == (400, 600, 3)
     finally:
         adapter.close()
+
+
+def test_simulation_lifecycle_initial_and_pause_duration():
+    """Verify lifecycle consistency: zero duration at READY, frozen when PAUSED, reset clears time."""
+    adapter = SimulationEnvironmentAdapter()
+    ctrl = SimulationController(adapter)
+    try:
+        # 1. Initial State: READY, 0 steps, 0 duration, 0 reward
+        assert ctrl.status == "READY"
+        summary_init = adapter.get_episode_summary()
+        assert summary_init["steps"] == 0
+        assert summary_init["duration_seconds"] == 0.0
+        assert summary_init["raw_reward"] == 0.0
+
+        # 2. RUNNING: duration and steps advance
+        ctrl.run()
+        assert ctrl.status == "RUNNING"
+        ctrl.step(num_steps=3)
+        summary_run = adapter.get_episode_summary()
+        assert summary_run["steps"] == 3
+        assert summary_run["duration_seconds"] > 0.0
+
+        # 3. PAUSED: duration freezes
+        ctrl.pause()
+        dur_paused = summary_run["duration_seconds"]
+        ctrl.step(num_steps=5)  # Should not advance
+        summary_after_pause = adapter.get_episode_summary()
+        assert summary_after_pause["steps"] == 3
+        assert summary_after_pause["duration_seconds"] == dur_paused
+
+        # 4. RESET: duration and steps reset to 0
+        ctrl.reset()
+        assert ctrl.status == "READY"
+        summary_reset = adapter.get_episode_summary()
+        assert summary_reset["steps"] == 0
+        assert summary_reset["duration_seconds"] == 0.0
+        assert summary_reset["raw_reward"] == 0.0
+    finally:
+        ctrl.cleanup()
+
 
